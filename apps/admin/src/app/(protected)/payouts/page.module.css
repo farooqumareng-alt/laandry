@@ -1,0 +1,29 @@
+.runCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  background: var(--paper-raised);
+  margin-bottom: 8px;
+}
+
+.runLabel {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.runAmount {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.runResult {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 20px;
+}

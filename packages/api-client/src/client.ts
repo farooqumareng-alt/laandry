@@ -220,6 +220,29 @@ export interface Review {
   createdAt: string;
 }
 
+export interface ProviderEarning {
+  id: string;
+  providerId: string;
+  orderId: string;
+  amountCents: number;
+  payoutId: string | null;
+  createdAt: string;
+}
+
+export interface EarningsSummary {
+  totalEarnedCents: number;
+  pendingCents: number;
+  paidOutCents: number;
+}
+
+export interface Payout {
+  id: string;
+  providerId: string;
+  amountCents: number;
+  status: string;
+  processedAt: string | null;
+}
+
 export class LaandryApiError extends Error {
   constructor(
     public readonly status: number,
@@ -391,6 +414,14 @@ export function createLaandryClient(options: LaandryClientOptions) {
     adminListIncidents: (status?: IncidentStatus) =>
       request<{ incidents: Incident[] }>(`/admin/incidents${status ? `?status=${status}` : ""}`),
     adminListReviews: () => request<{ reviews: Review[] }>("/admin/reviews"),
+
+    // --- provider earnings / payouts ---
+    getProviderEarnings: () => request<{ earnings: ProviderEarning[]; summary: EarningsSummary }>("/provider/earnings"),
+    getProviderPayouts: () => request<{ payouts: Payout[] }>("/provider/payouts"),
+    adminListEarnings: () => request<{ earnings: ProviderEarning[]; summary: EarningsSummary }>("/admin/earnings"),
+    adminListPayouts: () => request<{ payouts: Payout[] }>("/admin/payouts"),
+    /** Pays out every provider's pending earnings in one batch — see docs/ARCHITECTURE.md §31. */
+    adminRunPayouts: () => post<{ payouts: Payout[]; providersPaid: number }>("/admin/payouts/run"),
   };
 }
 

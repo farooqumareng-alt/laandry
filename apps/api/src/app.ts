@@ -28,6 +28,11 @@ import { PrismaOrderRepository } from "./order/prisma-repository";
 import type { OrderRepository } from "./order/repository";
 import { FakePaymentProvider } from "./payments/fake-provider";
 import type { PaymentProvider } from "./payments/provider";
+import { FakePayoutProvider } from "./payouts/fake-payout-provider";
+import type { PayoutProvider } from "./payouts/payout-provider";
+import { payoutsRoutes } from "./payouts/routes";
+import { PrismaPayoutsRepository } from "./payouts/prisma-repository";
+import type { PayoutsRepository } from "./payouts/repository";
 import { processingRoutes } from "./processing/routes";
 import { PrismaProcessingRepository } from "./processing/prisma-repository";
 import type { ProcessingRepository } from "./processing/repository";
@@ -50,6 +55,9 @@ export interface BuildAppOptions {
   paymentProvider?: PaymentProvider;
   /** Defaults to a real Resend send when RESEND_API_KEY is set, an in-memory recorder otherwise — see notifications/provider.ts. Tests always inject the in-memory one explicitly. */
   notificationProvider?: NotificationProvider;
+  payoutsRepository?: PayoutsRepository;
+  /** No real payout processor credentials exist — see payouts/payout-provider.ts. Defaults to FakePayoutProvider even outside tests. */
+  payoutProvider?: PayoutProvider;
 }
 
 /**
@@ -130,6 +138,8 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
     (env.RESEND_API_KEY
       ? new ResendNotificationProvider(env.RESEND_API_KEY, env.NOTIFICATIONS_FROM_EMAIL)
       : new InMemoryNotificationProvider());
+  const payoutsRepository = options.payoutsRepository ?? new PrismaPayoutsRepository(getPrisma());
+  const payoutProvider = options.payoutProvider ?? new FakePayoutProvider();
 
   app.register(healthRoutes);
   app.register(async (instance) =>
@@ -192,8 +202,12 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       matchingRepository,
       paymentProvider,
       notificationProvider,
+      payoutsRepository,
       env,
     }),
+  );
+  app.register(async (instance) =>
+    payoutsRoutes(instance, { payoutsRepository, providerRepository, payoutProvider, env }),
   );
 
   return app;

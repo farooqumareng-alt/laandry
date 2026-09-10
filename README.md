@@ -137,18 +137,20 @@ immutable ledger entries, and a one-shot post-delivery review), and a
 real staff-authenticated admin console (MFA enrollment, live orders,
 providers, provider applications with a working approve action, and
 incident resolution), and — out of phase sequence, once real
-credentials existed — real transactional email via Resend
-(order-scheduled, delivery-complete, provider-approved) — front to
-back, 142 tests, `npm run test`. See
+credentials/decisions existed — real transactional email via Resend
+(order-scheduled, delivery-complete, provider-approved) and real
+provider earnings/payouts (a user-confirmed 30% platform / 70% provider
+split, tips paid through at 100%, an admin-triggered payout batch
+action) — front to back, 151 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26–§30 for what shipped
+for what's next and what gates it, §19–§23 and §26–§31 for what shipped
 (§23 walks through a real concurrency bug the Phase 6 gate test caught
 and how it was fixed; §29 walks through a real Content-Type/empty-body
 bug its own live check caught, that had been silently breaking every
 bodyless POST call — Go Active, Start Delivery, and the like — in the
-live app; §30 covers the real email integration), §24 for the security
-pass, and §25 for the live deployment (with three more real bugs
-deploying surfaced and fixed).
+live app; §30 covers the real email integration, §31 the earnings/
+payouts ledger), §24 for the security pass, and §25 for the live
+deployment (with three more real bugs deploying surfaced and fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.
 API at `api.laandry.com` (or `api-dusky-nine-29.vercel.app` if that

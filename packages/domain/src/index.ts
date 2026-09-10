@@ -8,3 +8,4 @@ export * from "./pricing";
 export * from "./provider-status";
 export * from "./incident";
 export * from "./processing";
+export * from "./payouts";

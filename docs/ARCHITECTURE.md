@@ -352,6 +352,7 @@ accommodates all of these later without an order-model rewrite.
 | 9 | Return/delivery, POD, tips, reviews | — | ✅ Done — 132/132 tests passing (see §28) |
 | 10 | Admin console | — | ✅ Done — 136/136 apps/api+domain tests passing (see §29) |
 | — | *Out of sequence: real transactional email (Resend)* | — | ✅ Done — 142/142 tests passing (see §30) — triggered by real credentials becoming available, not by phase order |
+| — | *Out of sequence: provider earnings & payouts* | — | ✅ Done — 151/151 tests passing (see §31) — closes the gap §28/§29 flagged, ahead of the deferred-commerce phases below |
 | 11 | Promotions, referrals, gift cards | — | Next |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
@@ -1132,3 +1133,79 @@ provider account under `@example.com` (Resend's own sandbox rejects
 that domain, 422), and the approval still returned 200 with the error
 caught and logged, exactly as designed — re-ran with a real address to
 confirm the send path itself.
+
+## 31. Provider earnings & payouts
+
+Closes the gap §28 and §29 both flagged: `ProviderEarning`/`Payout` had
+a real schema since Phase 1 but no route touching either, anywhere.
+Done out of phase sequence — ahead of Phase 11's deferred-commerce work
+— because it's a real hole in the MVP boundary (§17 explicitly lists
+"provider earnings + payout" as in-scope) with no credential blocker,
+unlike a real payout *processor*, which still doesn't exist (see
+below).
+
+**The one real business number in the whole pricing/payouts surface.**
+Every rate in `pricing.ts` is an explicitly-labeled illustrative
+placeholder; the platform take rate is not — it's a user-confirmed
+30% platform / 70% provider split, `packages/domain/src/payouts.ts`'s
+`computeOrderEarningCents()`. Rounds down (`Math.floor`), never in the
+provider's favor — the platform absorbs the fractional remainder.
+**Tips are not split** — 100% of a tip is the provider's earning, a
+second, separate `ProviderEarning` row per tip (multiple rows per order
+was already the established shape from Phase 9's tip ledger).
+
+**Two trigger points, both inside `delivery/routes.ts`'s existing
+best-effort blocks** (own `try`/`catch` each, distinct from the
+notification block next to it — a missing ledger entry is a real
+financial-record gap, logged and flagged distinctly from a missed
+email, even though neither reverts the delivery/tip that already
+happened): `complete-delivery` records the order's 70% cut;
+`POST /orders/:id/tip` records the tip's full amount. Both resolve the
+assigned provider via `matchingRepository.getAssignmentForOrder` —
+`complete-delivery` already validated the caller as that provider,
+`/tip` is called by the *customer*, so this is the only way to find who
+actually gets paid.
+
+**The payout run is a real admin-triggered batch action, not a
+per-provider button.** `POST /admin/payouts/run` groups every earning
+with no `payoutId` by provider, pays each provider once via
+`PayoutProvider.pay()`, and atomically (one Prisma transaction per
+provider) creates the `Payout` row and attaches its earnings in the
+same commit — never a `Payout` with no linked earnings, or earnings
+silently detached from the payout meant to settle them. Gated on the
+existing `payout`/`write` grant (finance, admin, super_admin only —
+`ops_manager` has `payout`/`read` but not `write`, tested explicitly);
+every read (`GET /provider/earnings`, `/provider/payouts`,
+`/admin/earnings`, `/admin/payouts`) reuses the matching `payout`/`read`
+grant, "own" scope for the provider's own two, "any" for the admin
+two — no new `Resource` type needed in the §5 role matrix.
+
+**`FakePayoutProvider`, not a real payout processor** — the Resend key
+that made email genuinely real in §30 doesn't cover moving money to a
+provider's bank account (that needs Stripe Connect or equivalent, no
+credentials for it exist), so this follows `payments/provider.ts`'s
+same rule: never implement a real-looking provider that doesn't
+actually move money. `FakePayoutProvider.pay()` always succeeds — unlike
+a card authorization, there's no everyday "declined" case worth
+simulating for paying a provider their own earnings.
+
+**Deliberately not fully race-proofed** against two concurrent payout
+runs — the unpaid-earnings read and each provider's claim aren't one
+transaction spanning every provider, only per-provider. Accepted for an
+infrequent, single-operator admin action, not a customer-facing race
+like matching's offer-accept (§23); documented here rather than quietly
+assumed safe.
+
+**Frontend:** `apps/app`'s Earnings screen (real, replacing its Phase 1
+placeholder) shows the server-computed summary (available / paid out /
+lifetime) plus recent-earnings and payout-history lists — never
+totaled on-device, matching every other financial figure in this app.
+`apps/admin`'s Payouts page (also replacing its placeholder) shows the
+pending total across all providers and a Run Payouts button, plus
+payout history.
+
+**Verified — 151/151 tests passing** (100 in `apps/api`: +6 this
+phase; 51 in `packages/domain`: +3 for `computeOrderEarningCents`),
+full-repo typecheck clean, `apps/admin`'s ESLint clean (one more
+`set-state-in-effect` violation caught and fixed, same pattern as
+§29's), all three apps build.

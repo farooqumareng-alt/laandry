@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { assertOrderTransition, hasPermission } from "@laandry/domain";
+import { assertOrderTransition, computeOrderEarningCents, hasPermission } from "@laandry/domain";
 
 import { requireAuth, requireRole } from "../auth/plugin";
 import type { AuthRepository } from "../auth/repository";
@@ -11,6 +11,7 @@ import { deliveryCompleteEmail } from "../notifications/templates";
 import type { NotificationProvider } from "../notifications/provider";
 import type { OrderRecord, OrderRepository } from "../order/repository";
 import type { PaymentProvider } from "../payments/provider";
+import type { PayoutsRepository } from "../payouts/repository";
 import type { ProviderRepository } from "../provider/repository";
 import type { DeliveryRepository } from "./repository";
 
@@ -43,6 +44,7 @@ export interface DeliveryRoutesDeps {
   matchingRepository: MatchingRepository;
   paymentProvider: PaymentProvider;
   notificationProvider: NotificationProvider;
+  payoutsRepository: PayoutsRepository;
   env: Env;
 }
 
@@ -65,6 +67,7 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
     matchingRepository,
     paymentProvider,
     notificationProvider,
+    payoutsRepository,
     env,
   } = deps;
   const auth = requireAuth(env.JWT_SECRET);
@@ -162,12 +165,29 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
     });
     const finalOrder = await orderRepository.updateStatus(order.id, "DELIVERED");
 
+    const quote = await orderRepository.getLatestQuote(order.id);
+
+    // The provider's earning for this order — best-effort in the sense
+    // that a failure here doesn't revert a delivery that already
+    // happened, but logged distinctly from the email below since a
+    // missing ledger entry is a real financial-record gap, not just a
+    // missed notification.
+    try {
+      const assignment = await matchingRepository.getAssignmentForOrder(order.id);
+      if (assignment && quote) {
+        await payoutsRepository.recordEarning({
+          providerId: assignment.providerId,
+          orderId: order.id,
+          amountCents: computeOrderEarningCents(quote.totalCents),
+        });
+      }
+    } catch (err) {
+      request.log.error({ err, orderId: order.id }, "recording provider earning failed");
+    }
+
     // Best-effort, same discipline as every other notification call site.
     try {
-      const [customerProfile, quote] = await Promise.all([
-        customerRepository.getProfileById(order.customerId),
-        orderRepository.getLatestQuote(order.id),
-      ]);
+      const customerProfile = await customerRepository.getProfileById(order.customerId);
       const user = customerProfile ? await authRepository.findUserById(customerProfile.userId) : null;
       if (user && quote) {
         await notificationProvider.sendEmail({
@@ -248,6 +268,24 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
       status: authorization.status,
     });
     const tip = await deliveryRepository.addTip({ orderId: order.id, amountCents: body.data.amountCents });
+
+    // 100% of the tip — no platform cut, unlike the order-total split in
+    // computeOrderEarningCents. Same "don't revert a real charge over a
+    // ledger-recording failure" discipline as the earning recorded at
+    // delivery-complete above.
+    try {
+      const assignment = await matchingRepository.getAssignmentForOrder(order.id);
+      if (assignment) {
+        await payoutsRepository.recordEarning({
+          providerId: assignment.providerId,
+          orderId: order.id,
+          amountCents: body.data.amountCents,
+        });
+      }
+    } catch (err) {
+      request.log.error({ err, orderId: order.id }, "recording tip earning failed");
+    }
+
     return reply.code(201).send({ tip });
   });
 
