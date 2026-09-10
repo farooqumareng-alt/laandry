@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Fonts } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -14,8 +14,9 @@ export function Screen({
   kicker,
   title,
   description,
+  logo,
   children,
-}: PropsWithChildren<{ kicker: string; title: string; description: string }>) {
+}: PropsWithChildren<{ kicker: string; title: string; description: string; logo?: boolean }>) {
   const theme = useTheme();
 
   return (
@@ -24,6 +25,10 @@ export function Screen({
       contentContainerStyle={styles.content}
     >
       <View style={styles.inner}>
+        {logo ? (
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          <Image source={require('../../assets/images/wordmark.png')} style={styles.wordmark} resizeMode="contain" />
+        ) : null}
         <Text style={[styles.kicker, { color: theme.brass, fontFamily: Fonts?.mono }]}>
           {kicker}
         </Text>
@@ -49,6 +54,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 640,
     paddingVertical: 48,
+  },
+  wordmark: {
+    width: 168,
+    height: 50,
+    marginBottom: 20,
   },
   kicker: {
     fontSize: 12,

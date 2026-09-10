@@ -12,7 +12,9 @@ export function Sidebar() {
   return (
     <nav className={styles.sidebar} aria-label="Admin navigation">
       <div className={styles.brand}>
-        L<span>a</span>andry <span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}>Ops</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/wordmark.svg" alt="Laandry" className={styles.brandLogo} />
+        <span className={styles.brandSuffix}>Ops</span>
       </div>
       {NAV.map((section) => (
         <div className={styles.section} key={section.label}>

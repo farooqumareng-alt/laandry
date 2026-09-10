@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { router, Link } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
@@ -40,6 +40,8 @@ export default function RegisterScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.paper, padding: 24, justifyContent: 'center' }}>
       <View style={{ width: '100%', maxWidth: 400, alignSelf: 'center', gap: 16 }}>
+        {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
+        <Image source={require('../../assets/images/logo.png')} style={{ width: 44, height: 44, marginBottom: 4 }} resizeMode="contain" />
         <Text style={{ color: theme.ink, fontSize: 24, fontWeight: '600', marginBottom: 4 }}>Create your account</Text>
         <Text style={{ color: theme.inkSoft, fontSize: 14, marginTop: -8 }}>
           Save your preferences once — every pickup after this one gets faster.
