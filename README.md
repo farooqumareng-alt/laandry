@@ -34,6 +34,11 @@ npm run prisma:seed  # creates one local dev admin account — see output for it
 cp ../app/.env.example ../app/.env    # EXPO_PUBLIC_API_URL, defaults to localhost:4000
 ```
 
+Optionally, set `RESEND_API_KEY` in `apps/api/.env` to send real order/
+delivery/provider-approval emails locally (see §30) — leave it unset
+and the app records them in memory instead of sending, which is what
+every automated test does regardless.
+
 No Docker? Any Postgres 14+ works — install it natively, or use a free
 hosted instance (e.g. [neon.com](https://neon.com),
 [supabase.com](https://supabase.com)) and put its connection string in
@@ -131,16 +136,19 @@ return-delivery leg (with a real failed-delivery/retry path, tips as
 immutable ledger entries, and a one-shot post-delivery review), and a
 real staff-authenticated admin console (MFA enrollment, live orders,
 providers, provider applications with a working approve action, and
-incident resolution) — front to back, 136 tests, `npm run test`. See
+incident resolution), and — out of phase sequence, once real
+credentials existed — real transactional email via Resend
+(order-scheduled, delivery-complete, provider-approved) — front to
+back, 142 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26–§29 for what Phases
-2–10 shipped (§23 walks through a real concurrency bug the Phase 6 gate
-test caught and how it was fixed; §29 walks through a real
-Content-Type/empty-body bug its own live check caught, that had been
-silently breaking every bodyless POST call — Go Active, Start Delivery,
-and the like — in the live app), §24 for the security pass, and §25 for
-the live deployment (with three more real bugs deploying surfaced and
-fixed).
+for what's next and what gates it, §19–§23 and §26–§30 for what shipped
+(§23 walks through a real concurrency bug the Phase 6 gate test caught
+and how it was fixed; §29 walks through a real Content-Type/empty-body
+bug its own live check caught, that had been silently breaking every
+bodyless POST call — Go Active, Start Delivery, and the like — in the
+live app; §30 covers the real email integration), §24 for the security
+pass, and §25 for the live deployment (with three more real bugs
+deploying surfaced and fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.
 API at `api.laandry.com` (or `api-dusky-nine-29.vercel.app` if that

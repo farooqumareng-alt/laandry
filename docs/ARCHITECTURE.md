@@ -351,6 +351,7 @@ accommodates all of these later without an order-model rewrite.
 | 8 | Processing workflow, preference snapshot, incidents | — | ✅ Done — 122/122 tests passing (see §27) |
 | 9 | Return/delivery, POD, tips, reviews | — | ✅ Done — 132/132 tests passing (see §28) |
 | 10 | Admin console | — | ✅ Done — 136/136 apps/api+domain tests passing (see §29) |
+| — | *Out of sequence: real transactional email (Resend)* | — | ✅ Done — 142/142 tests passing (see §30) — triggered by real credentials becoming available, not by phase order |
 | 11 | Promotions, referrals, gift cards | — | Next |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
@@ -1078,3 +1079,56 @@ genuinely enabled in the live database as a result of this
 verification — a fresh `curl` login against it will get `401
 MFA_REQUIRED` without a code from here on, same as any other staff
 account; see the README's walkthrough update.
+
+## 30. Real transactional email (Resend)
+
+The user supplied a real Resend API key mid-Phase-11-planning; this
+closes the Email column of §14's notification matrix ahead of its
+originally-numbered phase, since it's now genuinely possible rather
+than blocked on missing credentials. Push and SMS stay unbuilt — no
+APNs/FCM/SMS-provider credentials exist for either.
+
+`apps/api/src/notifications/` follows the exact interface/fake/real
+split every other provider in this codebase uses
+(`NotificationProvider.sendEmail()`), except this is the **first one
+where the real implementation actually exists** — `payments/provider.ts`
+stayed fake for the entire project because no live Stripe (or
+equivalent) credentials were ever provided. `ResendNotificationProvider`
+is a plain `fetch` against Resend's REST API (no new dependency);
+`InMemoryNotificationProvider` records instead of sending, and is what
+every automated test and local dev without `RESEND_API_KEY` set uses.
+`app.ts` picks between them automatically based on whether the env var
+is present — never a fake-looking send in production, never an
+accidental real send in a test run.
+
+Three emails ship this pass, chosen to match what already has a real
+trigger point rather than the full six-row matrix: order-scheduled (at
+booking), delivery-complete (at `complete-delivery`), and
+provider-approved (at admin approval). "Payout processed" from the
+matrix has no trigger yet — `ProviderEarning`/`Payout` still have no
+route touching them, the same gap §28 flagged. Every send is
+best-effort inside a `try`/`catch` — a failure never reverts the
+booking/delivery/approval it's attached to — but deliberately *awaited*
+rather than fire-and-forget, because this runs on Vercel serverless
+functions where a detached promise left running after the response is
+sent has no guarantee of finishing before the function is torn down.
+
+Added `CustomerRepository.getProfileById()` — an `Order` only carries
+the `CustomerProfile` id, not the `User` id its email lives on, so the
+delivery-complete and order-scheduled call sites needed the reverse
+lookup `ProviderRepository` already had.
+
+**Verified — 142/142 tests passing** (94 in `apps/api`: +6 this phase
+— 4 pure-template/in-memory-provider unit tests plus a real assertion
+at each of the three call sites; 48 in `packages/domain`, untouched),
+full-repo typecheck clean, build clean. Redeployed live and verified
+against the real Resend account, not just the in-memory test double —
+querying Resend's own API after each call confirmed `last_event:
+"delivered"` for all three: a real booking's order-scheduled receipt,
+a real provider approval's notice, and a real delivery's completion
+receipt, each landing in a real inbox. Also incidentally confirmed the
+best-effort design works as intended: an early test run used a
+provider account under `@example.com` (Resend's own sandbox rejects
+that domain, 422), and the approval still returned 200 with the error
+caught and logged, exactly as designed — re-ran with a real address to
+confirm the send path itself.
