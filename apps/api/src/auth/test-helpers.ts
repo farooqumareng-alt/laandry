@@ -6,6 +6,7 @@ import { InMemoryCustomerRepository } from "../customer/memory-repository";
 import { InMemoryDeliveryRepository } from "../delivery/memory-repository";
 import { InMemoryFulfillmentRepository } from "../fulfillment/memory-repository";
 import { InMemoryMatchingRepository } from "../matching/memory-repository";
+import { InMemoryNotificationProvider } from "../notifications/memory-provider";
 import { InMemoryOrderRepository } from "../order/memory-repository";
 import { FakePaymentProvider } from "../payments/fake-provider";
 import { InMemoryProcessingRepository } from "../processing/memory-repository";
@@ -23,6 +24,7 @@ export function testEnv(overrides: Partial<Env> = {}): Env {
     ACCESS_TOKEN_TTL_MIN: 15,
     REFRESH_TOKEN_TTL_DAYS: 30,
     CORS_ORIGINS: ["http://localhost:8081"],
+    NOTIFICATIONS_FROM_EMAIL: "hello@laandry.com",
     ...overrides,
   };
 }
@@ -38,6 +40,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
   const processingRepository = new InMemoryProcessingRepository();
   const deliveryRepository = new InMemoryDeliveryRepository();
   const paymentProvider = new FakePaymentProvider();
+  const notificationProvider = new InMemoryNotificationProvider();
   const app = buildApp(env, {
     authRepository: repository,
     customerRepository,
@@ -48,6 +51,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     processingRepository,
     deliveryRepository,
     paymentProvider,
+    notificationProvider,
   });
   return {
     app,
@@ -60,6 +64,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     processingRepository,
     deliveryRepository,
     paymentProvider,
+    notificationProvider,
     env,
   };
 }

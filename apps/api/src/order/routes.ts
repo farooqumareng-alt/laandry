@@ -10,8 +10,11 @@ import {
 } from "@laandry/domain";
 
 import { requireAuth, requireRole } from "../auth/plugin";
+import type { AuthRepository } from "../auth/repository";
 import type { CustomerRepository } from "../customer/repository";
 import type { Env } from "../env";
+import { orderScheduledEmail } from "../notifications/templates";
+import type { NotificationProvider } from "../notifications/provider";
 import type { PaymentProvider } from "../payments/provider";
 import type { OrderRepository } from "./repository";
 
@@ -35,7 +38,9 @@ const adminListOrdersQuerySchema = z.object({ status: z.enum(ORDER_STATUSES).opt
 export interface OrderRoutesDeps {
   orderRepository: OrderRepository;
   customerRepository: CustomerRepository;
+  authRepository: AuthRepository;
   paymentProvider: PaymentProvider;
+  notificationProvider: NotificationProvider;
   env: Env;
   /** Runs after a booking is created — dispatches wave-1 offers. Best-effort: a dispatch failure doesn't fail the booking, since the order and its payment are already valid; see app.ts. */
   onOrderBooked?: (input: {
@@ -57,7 +62,7 @@ export interface OrderRoutesDeps {
  * result. See order.test.ts for the test that actually proves this.
  */
 export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
-  const { orderRepository, customerRepository, paymentProvider, env } = deps;
+  const { orderRepository, customerRepository, authRepository, paymentProvider, notificationProvider, env } = deps;
   const auth = requireAuth(env.JWT_SECRET);
 
   // No persistence, no payment — just runs the same computeQuote() the
@@ -137,6 +142,29 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
       });
     } catch (err) {
       request.log.error({ err, orderId: order.id }, "dispatch failed after booking");
+    }
+
+    // Best-effort, same as dispatch above — a failed or skipped email
+    // never reverts or fails the booking. Awaited (not fire-and-forget)
+    // because this runs on Vercel's serverless functions, where a
+    // detached promise left running after the response is sent isn't
+    // guaranteed to finish before the function is torn down.
+    try {
+      const user = await authRepository.findUserById(request.authUser!.id);
+      if (user) {
+        await notificationProvider.sendEmail({
+          to: user.email,
+          ...orderScheduledEmail({
+            service: order.service,
+            pickupWindowStart,
+            pickupWindowEnd,
+            lineItems: savedQuote.lineItems,
+            totalCents: savedQuote.totalCents,
+          }),
+        });
+      }
+    } catch (err) {
+      request.log.error({ err, orderId: order.id }, "order-scheduled email failed");
     }
 
     return reply.code(201).send({ order, quote: savedQuote, payment });

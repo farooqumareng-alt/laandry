@@ -27,6 +27,10 @@ export class InMemoryCustomerRepository implements CustomerRepository {
     return [...this.profilesById.values()].find((p) => p.userId === userId) ?? null;
   }
 
+  async getProfileById(id: string): Promise<CustomerProfileRecord | null> {
+    return this.profilesById.get(id) ?? null;
+  }
+
   async updatePreferences(profileId: string, preferences: LaandryPreferences): Promise<CustomerProfileRecord> {
     const profile = this.profilesById.get(profileId);
     if (!profile) throw new Error(`No such customer profile: ${profileId}`);

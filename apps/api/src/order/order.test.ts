@@ -316,3 +316,21 @@ test("GET /admin/orders lists every order for staff, filterable by status, and i
   const asCustomer = await app.inject({ method: "GET", url: "/admin/orders", headers: customerA.auth });
   assert.equal(asCustomer.statusCode, 403);
 });
+
+test("booking sends the customer a real order-scheduled email", async () => {
+  const repos = buildTestApp();
+  const { app, notificationProvider } = repos;
+  const { auth, addressId } = await registerCustomerWithAddress(app, "emailorder@example.com");
+
+  const booked = await app.inject({
+    method: "POST",
+    url: "/orders",
+    headers: auth,
+    payload: { addressId, ...PICKUP_WINDOW, paymentMethodToken: "tok_visa", service: "FORMAL_SPECIAL_CARE", items: [{ description: "Shirt", quantity: 1 }] },
+  });
+  assert.equal(booked.statusCode, 201);
+
+  assert.equal(notificationProvider.sentEmails.length, 1);
+  assert.equal(notificationProvider.sentEmails[0]?.to, "emailorder@example.com");
+  assert.equal(notificationProvider.sentEmails[0]?.subject, "Your Laandry is scheduled");
+});

@@ -12,6 +12,9 @@ const envSchema = z.object({
     .string()
     .default("http://localhost:8081,http://localhost:3000,http://localhost:3001")
     .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+  /** No default: unset means "no real email provider configured" — app.ts falls back to an in-memory recorder rather than a fake-looking send. Set in dev/prod to actually send. */
+  RESEND_API_KEY: z.string().optional(),
+  NOTIFICATIONS_FROM_EMAIL: z.string().email().default("hello@laandry.com"),
 });
 
 export type Env = z.infer<typeof envSchema>;

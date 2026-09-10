@@ -42,6 +42,8 @@ export interface CustomerRepository {
   /** Idempotent-in-spirit: called once, right after a customer user is created. */
   createProfile(userId: string): Promise<CustomerProfileRecord>;
   getProfileByUserId(userId: string): Promise<CustomerProfileRecord | null>;
+  /** The reverse lookup — an Order only carries the CustomerProfile id, not the userId, so anything needing that customer's email (e.g. notifications) needs this first. */
+  getProfileById(id: string): Promise<CustomerProfileRecord | null>;
   updatePreferences(profileId: string, preferences: LaandryPreferences): Promise<CustomerProfileRecord>;
 
   addAddress(input: CreateAddressInput): Promise<AddressRecord>;

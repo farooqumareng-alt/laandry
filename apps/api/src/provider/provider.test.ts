@@ -211,6 +211,30 @@ test("an unauthenticated request to any provider route is rejected", async () =>
   assert.equal(res.statusCode, 401);
 });
 
+test("approving a provider sends them a real provider-approved email", async () => {
+  const repos = buildTestApp();
+  const { app, repository, customerRepository, notificationProvider } = repos;
+  const { auth, providerId } = await applyAsProvider(app, "emailapprove@example.com");
+
+  await app.inject({ method: "PUT", url: "/provider/capabilities", headers: auth, payload: { services: ["EVERYDAY_LAUNDRY"] } });
+  await app.inject({ method: "POST", url: "/provider/service-areas", headers: auth, payload: { postalPrefix: "941", radiusMiles: 15 } });
+  await app.inject({ method: "POST", url: "/provider/submit-for-review", headers: auth });
+
+  await seedUser(repository, { email: "admin4@example.com", password: "correct horse battery staple", role: "admin" }, customerRepository);
+  const adminLogin = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "admin4@example.com", password: "correct horse battery staple" } });
+
+  const approve = await app.inject({
+    method: "POST",
+    url: `/admin/providers/${providerId}/approve`,
+    headers: { authorization: `Bearer ${adminLogin.json().accessToken}` },
+  });
+  assert.equal(approve.statusCode, 200);
+
+  assert.equal(notificationProvider.sentEmails.length, 1);
+  assert.equal(notificationProvider.sentEmails[0]?.to, "emailapprove@example.com");
+  assert.equal(notificationProvider.sentEmails[0]?.subject, "You're approved to go active");
+});
+
 test("GET /admin/providers lists every provider with its capabilities for ops staff, filterable by status, and is off-limits to support", async () => {
   const { app, repository, customerRepository } = buildTestApp();
   const applicant = await applyAsProvider(app, "adminlist1@example.com");

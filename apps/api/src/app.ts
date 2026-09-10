@@ -20,6 +20,9 @@ import type { FulfillmentRepository } from "./fulfillment/repository";
 import { matchingRoutes } from "./matching/routes";
 import { PrismaMatchingRepository } from "./matching/prisma-repository";
 import type { MatchingRepository } from "./matching/repository";
+import { InMemoryNotificationProvider } from "./notifications/memory-provider";
+import type { NotificationProvider } from "./notifications/provider";
+import { ResendNotificationProvider } from "./notifications/resend-provider";
 import { orderRoutes } from "./order/routes";
 import { PrismaOrderRepository } from "./order/prisma-repository";
 import type { OrderRepository } from "./order/repository";
@@ -45,6 +48,8 @@ export interface BuildAppOptions {
   deliveryRepository?: DeliveryRepository;
   /** No real processor is wired up anywhere yet — see payments/provider.ts. Defaults to FakePaymentProvider even outside tests. */
   paymentProvider?: PaymentProvider;
+  /** Defaults to a real Resend send when RESEND_API_KEY is set, an in-memory recorder otherwise — see notifications/provider.ts. Tests always inject the in-memory one explicitly. */
+  notificationProvider?: NotificationProvider;
 }
 
 /**
@@ -120,6 +125,11 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const processingRepository = options.processingRepository ?? new PrismaProcessingRepository(getPrisma());
   const deliveryRepository = options.deliveryRepository ?? new PrismaDeliveryRepository(getPrisma());
   const paymentProvider = options.paymentProvider ?? new FakePaymentProvider();
+  const notificationProvider =
+    options.notificationProvider ??
+    (env.RESEND_API_KEY
+      ? new ResendNotificationProvider(env.RESEND_API_KEY, env.NOTIFICATIONS_FROM_EMAIL)
+      : new InMemoryNotificationProvider());
 
   app.register(healthRoutes);
   app.register(async (instance) =>
@@ -136,14 +146,18 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
     orderRoutes(instance, {
       orderRepository,
       customerRepository,
+      authRepository,
       paymentProvider,
+      notificationProvider,
       env,
       onOrderBooked: async (input) => {
         await matchingRepository.dispatchOrder(input);
       },
     }),
   );
-  app.register(async (instance) => providerRoutes(instance, { authRepository, providerRepository, env }));
+  app.register(async (instance) =>
+    providerRoutes(instance, { authRepository, providerRepository, notificationProvider, env }),
+  );
   app.register(async (instance) =>
     matchingRoutes(instance, { matchingRepository, providerRepository, orderRepository, customerRepository, env }),
   );
@@ -173,9 +187,11 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       deliveryRepository,
       orderRepository,
       customerRepository,
+      authRepository,
       providerRepository,
       matchingRepository,
       paymentProvider,
+      notificationProvider,
       env,
     }),
   );

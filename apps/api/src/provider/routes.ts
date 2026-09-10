@@ -12,6 +12,8 @@ import { issueSession } from "../auth/session";
 import { hashPassword } from "../auth/password";
 import { requireAuth, requireRole } from "../auth/plugin";
 import type { Env } from "../env";
+import { providerApprovedEmail } from "../notifications/templates";
+import type { NotificationProvider } from "../notifications/provider";
 import type { ProviderRepository } from "./repository";
 
 const applySchema = z.object({
@@ -37,6 +39,7 @@ const adminListProvidersQuerySchema = z.object({ status: z.enum(PROVIDER_STATUSE
 export interface ProviderRoutesDeps {
   authRepository: AuthRepository;
   providerRepository: ProviderRepository;
+  notificationProvider: NotificationProvider;
   env: Env;
 }
 
@@ -51,7 +54,7 @@ export interface ProviderRoutesDeps {
  * docs/ARCHITECTURE.md §21.
  */
 export function providerRoutes(app: FastifyInstance, deps: ProviderRoutesDeps) {
-  const { authRepository, providerRepository, env } = deps;
+  const { authRepository, providerRepository, notificationProvider, env } = deps;
   const auth = requireAuth(env.JWT_SECRET);
   const asProvider = [auth, requireRole("provider")];
 
@@ -246,6 +249,18 @@ export function providerRoutes(app: FastifyInstance, deps: ProviderRoutesDeps) {
       return reply.code(409).send({ error: "INVALID_STATUS_FOR_TRANSITION", currentStatus: profile.status });
     }
     const updated = await providerRepository.updateStatus(profile.id, "APPROVED");
+
+    // Best-effort, same discipline as every other notification call site
+    // — a failed email never reverts the approval that already happened.
+    try {
+      const user = await authRepository.findUserById(profile.userId);
+      if (user) {
+        await notificationProvider.sendEmail({ to: user.email, ...providerApprovedEmail() });
+      }
+    } catch (err) {
+      request.log.error({ err, providerId: profile.id }, "provider-approved email failed");
+    }
+
     return reply.send({ profile: updated });
   });
 }

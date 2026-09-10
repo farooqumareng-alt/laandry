@@ -108,7 +108,7 @@ async function bookToReadyForReturn(
 
 test("the full return leg: ready-for-return -> on the way -> delivered, with a real proof-of-delivery record", async () => {
   const repos = buildTestApp();
-  const { app } = repos;
+  const { app, notificationProvider } = repos;
   const provider = await setupActiveProvider(app, repos, "delivery1@example.com", "FORMAL_SPECIAL_CARE");
   const customer = await registerCustomerWithAddress(app, "delivery1cust@example.com");
   const orderId = await bookToReadyForReturn(app, customer.auth, provider.auth, customer.addressId, {
@@ -132,6 +132,12 @@ test("the full return leg: ready-for-return -> on the way -> delivered, with a r
 
   const podRead = await app.inject({ method: "GET", url: `/orders/${orderId}/delivery-verification`, headers: customer.auth });
   assert.equal(podRead.json().deliveryVerification.method, "signature");
+
+  // Not the only email this flow sends (setupActiveProvider's own
+  // approval and the booking itself each send their own) — find this
+  // one specifically rather than assume it's alone in the list.
+  const deliveryEmail = notificationProvider.sentEmails.find((e) => e.subject === "Your Laandry is home");
+  assert.equal(deliveryEmail?.to, "delivery1cust@example.com");
 });
 
 test("start-delivery is rejected before the order reaches READY_FOR_RETURN", async () => {

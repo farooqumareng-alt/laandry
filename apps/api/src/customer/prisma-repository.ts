@@ -42,6 +42,17 @@ export class PrismaCustomerRepository implements CustomerRepository {
     };
   }
 
+  async getProfileById(id: string): Promise<CustomerProfileRecord | null> {
+    const profile = await this.prisma.customerProfile.findUnique({ where: { id } });
+    if (!profile) return null;
+    return {
+      id: profile.id,
+      userId: profile.userId,
+      preferences: parsePreferences(profile.preferences),
+      preferredProviderId: profile.preferredProviderId,
+    };
+  }
+
   async updatePreferences(profileId: string, preferences: LaandryPreferences): Promise<CustomerProfileRecord> {
     const profile = await this.prisma.customerProfile.update({
       where: { id: profileId },

@@ -3,9 +3,12 @@ import { z } from "zod";
 import { assertOrderTransition, hasPermission } from "@laandry/domain";
 
 import { requireAuth, requireRole } from "../auth/plugin";
+import type { AuthRepository } from "../auth/repository";
 import type { CustomerRepository } from "../customer/repository";
 import type { Env } from "../env";
 import type { MatchingRepository } from "../matching/repository";
+import { deliveryCompleteEmail } from "../notifications/templates";
+import type { NotificationProvider } from "../notifications/provider";
 import type { OrderRecord, OrderRepository } from "../order/repository";
 import type { PaymentProvider } from "../payments/provider";
 import type { ProviderRepository } from "../provider/repository";
@@ -35,9 +38,11 @@ export interface DeliveryRoutesDeps {
   deliveryRepository: DeliveryRepository;
   orderRepository: OrderRepository;
   customerRepository: CustomerRepository;
+  authRepository: AuthRepository;
   providerRepository: ProviderRepository;
   matchingRepository: MatchingRepository;
   paymentProvider: PaymentProvider;
+  notificationProvider: NotificationProvider;
   env: Env;
 }
 
@@ -51,8 +56,17 @@ export interface DeliveryRoutesDeps {
  * WeightVerification were before Phase 7.
  */
 export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
-  const { deliveryRepository, orderRepository, customerRepository, providerRepository, matchingRepository, paymentProvider, env } =
-    deps;
+  const {
+    deliveryRepository,
+    orderRepository,
+    customerRepository,
+    authRepository,
+    providerRepository,
+    matchingRepository,
+    paymentProvider,
+    notificationProvider,
+    env,
+  } = deps;
   const auth = requireAuth(env.JWT_SECRET);
   const asProvider = [auth, requireRole("provider")];
   const asCustomer = [auth, requireRole("customer")];
@@ -147,6 +161,24 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
       method: body.data.method,
     });
     const finalOrder = await orderRepository.updateStatus(order.id, "DELIVERED");
+
+    // Best-effort, same discipline as every other notification call site.
+    try {
+      const [customerProfile, quote] = await Promise.all([
+        customerRepository.getProfileById(order.customerId),
+        orderRepository.getLatestQuote(order.id),
+      ]);
+      const user = customerProfile ? await authRepository.findUserById(customerProfile.userId) : null;
+      if (user && quote) {
+        await notificationProvider.sendEmail({
+          to: user.email,
+          ...deliveryCompleteEmail({ totalCents: quote.totalCents, deliveryMethod: body.data.method }),
+        });
+      }
+    } catch (err) {
+      request.log.error({ err, orderId: order.id }, "delivery-complete email failed");
+    }
+
     return reply.send({ order: finalOrder, deliveryVerification });
   });
 
