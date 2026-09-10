@@ -10,7 +10,11 @@
 // legality; these enums just need to name the same states.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev on Windows/Mac; rhel-openssl-3.0.x for Vercel's
+  // Amazon-Linux-based Node runtime — without it the deployed function
+  // throws at the first Prisma call, not at build time.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
