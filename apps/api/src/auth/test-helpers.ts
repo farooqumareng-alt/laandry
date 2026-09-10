@@ -3,6 +3,7 @@ import type { Role } from "@laandry/domain";
 import { buildApp } from "../app";
 import type { Env } from "../env";
 import { InMemoryCustomerRepository } from "../customer/memory-repository";
+import { InMemoryDeliveryRepository } from "../delivery/memory-repository";
 import { InMemoryFulfillmentRepository } from "../fulfillment/memory-repository";
 import { InMemoryMatchingRepository } from "../matching/memory-repository";
 import { InMemoryOrderRepository } from "../order/memory-repository";
@@ -35,6 +36,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
   const matchingRepository = new InMemoryMatchingRepository(providerRepository, orderRepository, customerRepository);
   const fulfillmentRepository = new InMemoryFulfillmentRepository();
   const processingRepository = new InMemoryProcessingRepository();
+  const deliveryRepository = new InMemoryDeliveryRepository();
   const paymentProvider = new FakePaymentProvider();
   const app = buildApp(env, {
     authRepository: repository,
@@ -44,6 +46,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     matchingRepository,
     fulfillmentRepository,
     processingRepository,
+    deliveryRepository,
     paymentProvider,
   });
   return {
@@ -55,6 +58,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     matchingRepository,
     fulfillmentRepository,
     processingRepository,
+    deliveryRepository,
     paymentProvider,
     env,
   };

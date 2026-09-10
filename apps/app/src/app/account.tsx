@@ -54,7 +54,7 @@ function AccountScreenBody() {
   async function onAddAddress() {
     setError(null);
     if (!form.line1 || !form.city || !form.region || !form.postalCode) {
-      setError('Fill in address, city, region, and postal code.');
+      setError('Fill in address, city, state/region, and postal code.');
       return;
     }
     setAddingAddress(true);
@@ -132,7 +132,7 @@ function AccountScreenBody() {
                 <TextField label="City" value={form.city} onChangeText={(v) => setForm((f) => ({ ...f, city: v }))} />
               </View>
               <View style={{ flex: 1 }}>
-                <TextField label="Region" value={form.region} onChangeText={(v) => setForm((f) => ({ ...f, region: v }))} />
+                <TextField label="State / Region" value={form.region} onChangeText={(v) => setForm((f) => ({ ...f, region: v }))} />
               </View>
             </View>
             <TextField

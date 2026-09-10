@@ -349,8 +349,8 @@ accommodates all of these later without an order-model rewrite.
 | 6 | Matching, offers, atomic acceptance | Concurrency test passing | ✅ Done — 93/93 tests passing (see §23) |
 | 7 | Pickup, verification, bag/item/weight tracking | — | ✅ Done — 109/109 tests passing (see §26) |
 | 8 | Processing workflow, preference snapshot, incidents | — | ✅ Done — 122/122 tests passing (see §27) |
-| 9 | Return/delivery, POD, tips, reviews | — | Next |
-| 10 | Admin console | — | — |
+| 9 | Return/delivery, POD, tips, reviews | — | ✅ Done — 132/132 tests passing (see §28) |
+| 10 | Admin console | — | Next |
 | 11 | Promotions, referrals, gift cards | — | — |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
@@ -865,3 +865,69 @@ back. `api.laandry.com` itself still doesn't resolve from outside
 Vercel's own alias system (same unresolved DNS issue as §25 — verified
 via the stable `api-dusky-nine-29.vercel.app` alias instead, same
 workaround as every prior phase's live check).
+
+## 28. Phase 9 — what shipped
+
+`apps/api/src/delivery/` owns the last leg of the order lifecycle —
+`READY_FOR_RETURN → ON_THE_WAY → DELIVERED`, with a `DELIVERY_FAILED`
+detour and retry — plus tips and the post-delivery review, closing out
+the customer journey's "... delivered → tip/rate." No migration was
+needed this phase: `DeliveryVerification`, `Tip`, and `Review` were all
+in the schema since Phase 1 and simply unused until now, same story as
+`PickupVerification`/`WeightVerification` before Phase 7.
+
+**The delivery-failed/retry loop is a real second path through the state
+machine, not a dead end.** `order.ts`'s `ON_THE_WAY ↔ DELIVERY_FAILED`
+transitions were defined since Phase 1 but had no caller until this
+phase's `POST /provider/orders/:id/delivery-failed` and
+`.../retry-delivery`. A failed attempt is a deliberate MVP
+simplification: the optional `reason` a provider gives is returned in
+the response but not persisted anywhere — there's still no
+events/audit table wired into any route in this codebase (the same
+`AuditEvent`/`OrderStatusEvent` gap flagged in §27), so persisting it
+here alone would have been inconsistent with every other status change.
+
+**Tips are immutable ledger entries, not a balance.** The `Tip` model
+was already schema'd without a unique constraint on `orderId` — Order
+Model already anticipated more than one tip per order — so
+`POST /orders/:id/tip` never checks for a prior tip before creating a
+new one; each call is its own row, matching §10's "immutable ledger
+entry, not an overwritten balance." A tip charge goes through the same
+`paymentProvider.authorize()` + `orderRepository.addPayment()` path
+Phase 7 used for a weight-overage difference — a declined charge (402)
+leaves no `Tip` row at all. Tipping (and reviewing) is gated on
+`order.status === "DELIVERED"`, matching the journey text exactly rather
+than allowing either mid-delivery.
+
+**A review is genuinely one-shot.** `Review.orderId` *is* `@unique` in
+the schema (unlike `Tip`), and the route checks for an existing review
+before inserting rather than relying on the DB constraint to reject a
+duplicate — a second `POST /orders/:id/review` on the same order returns
+409 `REVIEW_ALREADY_SUBMITTED`, not a second row or a silently-ignored
+overwrite. There's no edit endpoint yet, which is a real limitation, not
+an oversight — added if a later phase needs it.
+
+Every ownership check follows the by-now-established pattern: a provider
+not assigned to the order gets 404 advancing or reading its delivery
+(never 403); a customer other than the order's owner gets 404 tipping or
+reviewing someone else's order; `GET /orders/:id/delivery-verification`,
+`.../tips`, and `.../review` all reuse the customer-own /
+assigned-provider / staff-any three-way read check Phase 7 introduced.
+
+**Deliberately out of scope for Phase 9:** provider earnings and payouts
+— `ProviderEarning`/`Payout` are in the schema per §17's MVP boundary but
+still have no route touching them anywhere in this codebase, a
+pre-existing gap this phase didn't close; building a real earnings
+ledger without a real payout mechanism (Stripe Connect or equivalent)
+behind it would have been a half-built feature, so it stays explicitly
+deferred rather than rushed. No review-editing endpoint. No photo
+evidence on a failed-delivery report (same no-file-upload-architecture
+gap flagged since Phase 1).
+
+**Verified — 132/132 tests passing** (84 in `apps/api`, 48 in
+`packages/domain`), full-repo typecheck clean, all three apps build,
+static web export renders every route. **NOT VERIFIED (yet):** against
+the live Supabase database with a real HTTP walk the way Phases 6–8's
+live checks were — only the in-memory test suite has actually been run
+as of this section being written; a live redeploy and E2E walk are the
+next step before this phase is called fully done.

@@ -93,6 +93,11 @@ With all three running (web is the fastest way to click through — press
    time an order is in a provider's hands and never blocks either of
    those buttons — the customer sees it on `/orders/[id]` immediately,
    before anyone resolves it.
+7. "Start Delivery" then "Confirm Delivered" (or "Delivery Failed" to see
+   the retry path — "Try Delivery Again" puts it back on the way) — see
+   §28. Once delivered, the *customer's* `/orders/[id]` shows a tip card
+   (test token `tok_visa`/`tok_declined` work the same as at booking) and
+   a star rating; a review can only be submitted once per order.
 
 **Poking at the API directly** — every route in `docs/ARCHITECTURE.md` §21/§22
 is plain JSON over HTTP; `curl` or any REST client works. `npx prisma studio`
@@ -109,20 +114,22 @@ npm run build        # every workspace with a build script
 
 ## Status
 
-Phases 0–8 done: repo scaffold/routing/design tokens/DB schema,
+Phases 0–9 done: repo scaffold/routing/design tokens/DB schema,
 auth/roles/authorization test harness, customer onboarding (addresses +
 preferences), booking/pricing/payment authorization, provider onboarding
 (application → capabilities/service areas → review → approval →
 availability → active), matching/offers/atomic acceptance, pickup/weight
 verification (with re-pricing on a verified overage), a security
 hardening pass (helmet, CORS allowlist, rate limiting, log redaction, a
-non-leaking error handler), and the processing workflow (required-stage
+non-leaking error handler), the processing workflow (required-stage
 confirmation against the customer's actual preferences, plus an
-incident-reporting pathway that never blocks or gates the order) — front
-to back, 122 tests, `npm run test`. See
+incident-reporting pathway that never blocks or gates the order), and
+the return-delivery leg (with a real failed-delivery/retry path, tips as
+immutable ledger entries, and a one-shot post-delivery review) — front
+to back, 132 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23, §26, and §27 for what Phases
-2–8 shipped (§23 walks through a real concurrency bug the Phase 6 gate
+for what's next and what gates it, §19–§23 and §26–§28 for what Phases
+2–9 shipped (§23 walks through a real concurrency bug the Phase 6 gate
 test caught and how it was fixed), §24 for the security pass, and §25 for
 the live deployment (with three more real bugs deploying surfaced and
 fixed).

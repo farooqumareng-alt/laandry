@@ -218,6 +218,76 @@ function IncidentForm({ orderId, onDone }: { orderId: string; onDone: () => void
   );
 }
 
+function DeliveryForm({ orderId, onDone }: { orderId: string; onDone: (message: string) => void }) {
+  const theme = useTheme();
+  const [method, setMethod] = useState<'qr' | 'pin' | 'signature'>('qr');
+  const [failing, setFailing] = useState(false);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onComplete() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.completeDelivery(orderId, method);
+      onDone('Delivered.');
+    } catch {
+      setError('Couldn’t confirm delivery — please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onReportFailed() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.reportDeliveryFailed(orderId, reason.trim() || undefined);
+      onDone('Marked as a failed delivery attempt — retry once you’re able to.');
+    } catch {
+      setError('Couldn’t submit that — please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (failing) {
+    return (
+      <View style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 12, padding: 16, gap: 14 }}>
+        <Text style={{ color: theme.ink, fontSize: 15, fontWeight: '600' }}>Delivery didn't go through</Text>
+        <TextField label="What happened (optional)" value={reason} onChangeText={setReason} placeholder="e.g. No one home" />
+        {error ? <Text style={{ color: theme.danger, fontSize: 13 }}>{error}</Text> : null}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Button label="Confirm Failed" onPress={onReportFailed} loading={submitting} />
+          <Button variant="secondary" label="Cancel" onPress={() => setFailing(false)} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 12, padding: 16, gap: 14 }}>
+      <Text style={{ color: theme.ink, fontSize: 15, fontWeight: '600' }}>Confirm delivery</Text>
+      <ChipGroup
+        label="Handoff confirmed via"
+        value={method}
+        onChange={setMethod}
+        options={[
+          { value: 'qr', label: 'QR code' },
+          { value: 'pin', label: 'PIN' },
+          { value: 'signature', label: 'Signature' },
+        ]}
+      />
+      {error ? <Text style={{ color: theme.danger, fontSize: 13 }}>{error}</Text> : null}
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Button label="Confirm Delivered" onPress={onComplete} loading={submitting} />
+        <Button variant="secondary" label="Delivery Failed" onPress={() => setFailing(true)} />
+      </View>
+    </View>
+  );
+}
+
 function ProviderOrderDetail({ orderId }: { orderId: string }) {
   const theme = useTheme();
   const [order, setOrder] = useState<Order | null>(null);
@@ -228,6 +298,9 @@ function ProviderOrderDetail({ orderId }: { orderId: string }) {
   const [weightNotice, setWeightNotice] = useState<string | null>(null);
   const [returnNotice, setReturnNotice] = useState<string | null>(null);
   const [markingReady, setMarkingReady] = useState(false);
+  const [deliveryNotice, setDeliveryNotice] = useState<string | null>(null);
+  const [startingDelivery, setStartingDelivery] = useState(false);
+  const [retryingDelivery, setRetryingDelivery] = useState(false);
 
   function load() {
     return api
@@ -254,6 +327,31 @@ function ProviderOrderDetail({ orderId }: { orderId: string }) {
       setReturnNotice('Couldn’t mark this ready for return — please try again.');
     } finally {
       setMarkingReady(false);
+    }
+  }
+
+  async function onStartDelivery() {
+    setStartingDelivery(true);
+    try {
+      await api.startDelivery(orderId);
+      load();
+    } catch {
+      setDeliveryNotice('Couldn’t start delivery — please try again.');
+    } finally {
+      setStartingDelivery(false);
+    }
+  }
+
+  async function onRetryDelivery() {
+    setRetryingDelivery(true);
+    try {
+      await api.retryDelivery(orderId);
+      setDeliveryNotice(null);
+      load();
+    } catch {
+      setDeliveryNotice('Couldn’t restart delivery — please try again.');
+    } finally {
+      setRetryingDelivery(false);
     }
   }
 
@@ -314,6 +412,22 @@ function ProviderOrderDetail({ orderId }: { orderId: string }) {
           </View>
         ) : null}
         {returnNotice ? <Text style={{ color: theme.accent, fontSize: 13.5 }}>{returnNotice}</Text> : null}
+
+        {order.status === 'READY_FOR_RETURN' ? (
+          <Button label="Start Delivery" onPress={onStartDelivery} loading={startingDelivery} />
+        ) : null}
+
+        {order.status === 'ON_THE_WAY' ? (
+          <DeliveryForm orderId={orderId} onDone={(message) => { setDeliveryNotice(message); load(); }} />
+        ) : null}
+
+        {order.status === 'DELIVERY_FAILED' ? (
+          <View style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 12, padding: 16, gap: 12 }}>
+            <Text style={{ color: theme.ink, fontSize: 15, fontWeight: '600' }}>Delivery attempt failed</Text>
+            <Button label="Try Delivery Again" onPress={onRetryDelivery} loading={retryingDelivery} />
+          </View>
+        ) : null}
+        {deliveryNotice ? <Text style={{ color: theme.accent, fontSize: 13.5 }}>{deliveryNotice}</Text> : null}
 
         {!NO_INCIDENT_STATUSES.has(order.status) ? <IncidentForm orderId={orderId} onDone={load} /> : null}
 

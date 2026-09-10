@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import { CUSTOMER_MILESTONES, toCustomerMilestone } from '@laandry/domain';
-import type { Incident, Order, QuoteResponse, WeightVerification } from '@laandry/api-client';
+import type { Incident, Order, QuoteResponse, Review, Tip, WeightVerification } from '@laandry/api-client';
 
 import { Button } from '@/components/button';
+import { ChipGroup } from '@/components/chip-group';
 import { RequireAuth } from '@/components/require-auth';
 import { TextField } from '@/components/text-field';
 import { useTheme } from '@/hooks/use-theme';
@@ -112,22 +113,137 @@ function WeightApprovalCard({ orderId, verifiedWeightLb, onResolved }: { orderId
   );
 }
 
+const TIP_AMOUNTS_CENTS = [300, 500, 1000] as const;
+
+function TipCard({ orderId, tips, onTipped }: { orderId: string; tips: Tip[]; onTipped: () => void }) {
+  const theme = useTheme();
+  const [amountCents, setAmountCents] = useState<number>(TIP_AMOUNTS_CENTS[1]);
+  const [paymentMethodToken, setPaymentMethodToken] = useState('tok_visa');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [thanked, setThanked] = useState(false);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.addTip(orderId, amountCents, paymentMethodToken);
+      setThanked(true);
+      onTipped();
+    } catch (err) {
+      if (err instanceof LaandryApiError && err.code === 'PAYMENT_DECLINED') {
+        setError('That payment method was declined. Try a different one.');
+      } else {
+        setError('Couldn’t process that — please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const totalTippedCents = tips.reduce((sum, t) => sum + t.amountCents, 0);
+
+  return (
+    <View style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 12, padding: 16, gap: 14 }}>
+      <Text style={{ color: theme.ink, fontSize: 15, fontWeight: '600' }}>
+        {totalTippedCents > 0 ? `You’ve tipped ${centsToLabel(totalTippedCents)}` : 'Tip your provider'}
+      </Text>
+      {thanked ? (
+        <Text style={{ color: theme.inkSoft, fontSize: 13.5 }}>Thank you — it goes straight to them.</Text>
+      ) : (
+        <>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {TIP_AMOUNTS_CENTS.map((cents) => (
+              <View key={cents} style={{ flex: 1 }}>
+                <Button
+                  label={centsToLabel(cents)}
+                  variant={amountCents === cents ? 'primary' : 'secondary'}
+                  onPress={() => setAmountCents(cents)}
+                />
+              </View>
+            ))}
+          </View>
+          <TextField label="Payment method (test token)" value={paymentMethodToken} onChangeText={setPaymentMethodToken} autoCapitalize="none" />
+          {error ? <Text style={{ color: theme.danger, fontSize: 13 }}>{error}</Text> : null}
+          <Button label={`Send ${centsToLabel(amountCents)} Tip`} onPress={onSubmit} loading={submitting} />
+        </>
+      )}
+    </View>
+  );
+}
+
+function ReviewCard({ orderId, review, onSubmitted }: { orderId: string; review: Review | null; onSubmitted: () => void }) {
+  const theme = useTheme();
+  const [rating, setRating] = useState<'1' | '2' | '3' | '4' | '5'>('5');
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.submitReview(orderId, { rating: Number(rating), comment: comment.trim() || undefined });
+      onSubmitted();
+    } catch {
+      setError('Couldn’t submit that — please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (review) {
+    return (
+      <View style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 12, padding: 16, gap: 6 }}>
+        <Text style={{ color: theme.ink, fontSize: 15, fontWeight: '600' }}>Your review</Text>
+        <Text style={{ color: theme.accent, fontSize: 14, fontWeight: '600' }}>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</Text>
+        {review.comment ? <Text style={{ color: theme.inkSoft, fontSize: 13.5 }}>{review.comment}</Text> : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 12, padding: 16, gap: 14 }}>
+      <Text style={{ color: theme.ink, fontSize: 15, fontWeight: '600' }}>Rate this Laandry</Text>
+      <ChipGroup
+        label="Rating"
+        value={rating}
+        onChange={setRating}
+        options={['1', '2', '3', '4', '5'].map((n) => ({ value: n as typeof rating, label: `${n} ★` }))}
+      />
+      <TextField label="Comment (optional)" value={comment} onChangeText={setComment} multiline />
+      {error ? <Text style={{ color: theme.danger, fontSize: 13 }}>{error}</Text> : null}
+      <Button label="Submit Review" onPress={onSubmit} loading={submitting} />
+    </View>
+  );
+}
+
 function OrderDetail({ orderId }: { orderId: string }) {
   const theme = useTheme();
   const [order, setOrder] = useState<Order | null>(null);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [weightVerification, setWeightVerification] = useState<WeightVerification | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [tips, setTips] = useState<Tip[]>([]);
+  const [review, setReview] = useState<Review | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   function load() {
-    return Promise.all([api.getOrder(orderId), api.getWeightVerification(orderId), api.listIncidents(orderId)])
-      .then(([orderRes, weightRes, incidentsRes]) => {
+    return Promise.all([
+      api.getOrder(orderId),
+      api.getWeightVerification(orderId),
+      api.listIncidents(orderId),
+      api.listTips(orderId),
+      api.getReview(orderId),
+    ])
+      .then(([orderRes, weightRes, incidentsRes, tipsRes, reviewRes]) => {
         setOrder(orderRes.order);
         setQuote(orderRes.quote);
         setWeightVerification(weightRes.weightVerification);
         setIncidents(incidentsRes.incidents);
+        setTips(tipsRes.tips);
+        setReview(reviewRes.review);
       })
       .catch(() => setError('Couldn’t load this order.'));
   }
@@ -166,6 +282,13 @@ function OrderDetail({ orderId }: { orderId: string }) {
         </View>
 
         <MilestoneTracker status={order.status} />
+
+        {order.status === 'DELIVERED' ? (
+          <>
+            <TipCard orderId={orderId} tips={tips} onTipped={load} />
+            <ReviewCard orderId={orderId} review={review} onSubmitted={load} />
+          </>
+        ) : null}
 
         {needsWeightApproval && weightVerification ? (
           <WeightApprovalCard orderId={orderId} verifiedWeightLb={weightVerification.verifiedWeightLb} onResolved={load} />

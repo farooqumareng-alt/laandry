@@ -9,6 +9,9 @@ import type { AuthRepository } from "./auth/repository";
 import { customerRoutes } from "./customer/routes";
 import { PrismaCustomerRepository } from "./customer/prisma-repository";
 import type { CustomerRepository } from "./customer/repository";
+import { deliveryRoutes } from "./delivery/routes";
+import { PrismaDeliveryRepository } from "./delivery/prisma-repository";
+import type { DeliveryRepository } from "./delivery/repository";
 import { getPrisma } from "./db";
 import type { Env } from "./env";
 import { fulfillmentRoutes } from "./fulfillment/routes";
@@ -39,6 +42,7 @@ export interface BuildAppOptions {
   matchingRepository?: MatchingRepository;
   fulfillmentRepository?: FulfillmentRepository;
   processingRepository?: ProcessingRepository;
+  deliveryRepository?: DeliveryRepository;
   /** No real processor is wired up anywhere yet — see payments/provider.ts. Defaults to FakePaymentProvider even outside tests. */
   paymentProvider?: PaymentProvider;
 }
@@ -114,6 +118,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const matchingRepository = options.matchingRepository ?? new PrismaMatchingRepository(getPrisma());
   const fulfillmentRepository = options.fulfillmentRepository ?? new PrismaFulfillmentRepository(getPrisma());
   const processingRepository = options.processingRepository ?? new PrismaProcessingRepository(getPrisma());
+  const deliveryRepository = options.deliveryRepository ?? new PrismaDeliveryRepository(getPrisma());
   const paymentProvider = options.paymentProvider ?? new FakePaymentProvider();
 
   app.register(healthRoutes);
@@ -160,6 +165,17 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       customerRepository,
       providerRepository,
       matchingRepository,
+      env,
+    }),
+  );
+  app.register(async (instance) =>
+    deliveryRoutes(instance, {
+      deliveryRepository,
+      orderRepository,
+      customerRepository,
+      providerRepository,
+      matchingRepository,
+      paymentProvider,
       env,
     }),
   );

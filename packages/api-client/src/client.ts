@@ -193,6 +193,28 @@ export interface Incident {
   createdAt: string;
 }
 
+export interface DeliveryVerification {
+  id: string;
+  orderId: string;
+  method: string;
+  verifiedAt: string;
+}
+
+export interface Tip {
+  id: string;
+  orderId: string;
+  amountCents: number;
+  createdAt: string;
+}
+
+export interface Review {
+  id: string;
+  orderId: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+}
+
 export class LaandryApiError extends Error {
   constructor(
     public readonly status: number,
@@ -325,6 +347,26 @@ export function createLaandryClient(options: LaandryClientOptions) {
     listIncidents: (orderId: string) => request<{ incidents: Incident[] }>(`/orders/${orderId}/incidents`),
     resolveIncident: (orderId: string, incidentId: string, resolutionNote: string) =>
       post<{ incident: Incident }>(`/orders/${orderId}/incidents/${incidentId}/resolve`, { resolutionNote }),
+
+    // --- return delivery / proof of delivery / tips / review ---
+    startDelivery: (orderId: string) => post<{ order: Order }>(`/provider/orders/${orderId}/start-delivery`),
+    completeDelivery: (orderId: string, method: "qr" | "pin" | "signature") =>
+      post<{ order: Order; deliveryVerification: DeliveryVerification }>(`/provider/orders/${orderId}/complete-delivery`, {
+        method,
+      }),
+    reportDeliveryFailed: (orderId: string, reason?: string) =>
+      post<{ order: Order; reason: string | null }>(`/provider/orders/${orderId}/delivery-failed`, { reason }),
+    retryDelivery: (orderId: string) => post<{ order: Order }>(`/provider/orders/${orderId}/retry-delivery`),
+    getDeliveryVerification: (orderId: string) =>
+      request<{ deliveryVerification: DeliveryVerification | null }>(`/orders/${orderId}/delivery-verification`),
+    /** 402 (LaandryApiError code "PAYMENT_DECLINED") means the charge failed — no tip is recorded, try again with a different token. A second, later tip on the same order is legitimate — each call is its own ledger entry. */
+    addTip: (orderId: string, amountCents: number, paymentMethodToken: string) =>
+      post<{ tip: Tip }>(`/orders/${orderId}/tip`, { amountCents, paymentMethodToken }),
+    listTips: (orderId: string) => request<{ tips: Tip[] }>(`/orders/${orderId}/tips`),
+    /** 409 (LaandryApiError code "REVIEW_ALREADY_SUBMITTED") means this order already has one — there's no edit endpoint yet. */
+    submitReview: (orderId: string, input: { rating: number; comment?: string }) =>
+      post<{ review: Review }>(`/orders/${orderId}/review`, input),
+    getReview: (orderId: string) => request<{ review: Review | null }>(`/orders/${orderId}/review`),
   };
 }
 
