@@ -1283,3 +1283,10 @@ Activate/Deactivate toggle.
 **Verified — 165/165 tests passing** (108 in `apps/api`: +8 this
 phase; 57 in `packages/domain`: +6 for `promotions.ts`), full-repo
 typecheck clean, `apps/admin`'s ESLint clean, all three apps build.
+Redeployed live and walked the whole loop against the real Supabase
+database and real HTTP requests: created a real 15%-off code through
+`POST /admin/promotions` → `/quote-preview` on a $45.00 order priced it
+at exactly $38.25 (`promoDiscountCents: 675`) → booked it for real and
+**the actual charge was $38.25, not the $45.00 pre-discount
+subtotal** → a second booking attempt with the same code, same
+customer, correctly rejected 400 `PROMO_ALREADY_USED_BY_CUSTOMER`.
