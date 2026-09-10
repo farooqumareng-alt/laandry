@@ -84,6 +84,15 @@ With all three running (web is the fastest way to click through — press
    no polling needed); Accept takes you to `/provider/orders/[id]` with the
    full address and care preferences, which weren't visible before you
    accepted.
+6. Confirm pickup, then (for everyday laundry/travel) verify weight — see
+   §26. Once the order reaches "Being Cared For," check off each required
+   stage shown on `/provider/orders/[id]` (exactly the ones the
+   customer's saved preferences call for — try leaving one unchecked and
+   the button stays disabled) to move it to "Finishing," then "Mark Ready
+   for Return." "Report an issue with this order" is available the whole
+   time an order is in a provider's hands and never blocks either of
+   those buttons — the customer sees it on `/orders/[id]` immediately,
+   before anyone resolves it.
 
 **Poking at the API directly** — every route in `docs/ARCHITECTURE.md` §21/§22
 is plain JSON over HTTP; `curl` or any REST client works. `npx prisma studio`
@@ -100,19 +109,23 @@ npm run build        # every workspace with a build script
 
 ## Status
 
-Phases 0–7 done: repo scaffold/routing/design tokens/DB schema,
+Phases 0–8 done: repo scaffold/routing/design tokens/DB schema,
 auth/roles/authorization test harness, customer onboarding (addresses +
 preferences), booking/pricing/payment authorization, provider onboarding
 (application → capabilities/service areas → review → approval →
 availability → active), matching/offers/atomic acceptance, pickup/weight
-verification (with re-pricing on a verified overage), and a security
+verification (with re-pricing on a verified overage), a security
 hardening pass (helmet, CORS allowlist, rate limiting, log redaction, a
-non-leaking error handler) — front to back, 109 tests, `npm run test`. See
+non-leaking error handler), and the processing workflow (required-stage
+confirmation against the customer's actual preferences, plus an
+incident-reporting pathway that never blocks or gates the order) — front
+to back, 122 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26 for what Phases 2–7
-shipped (§23 walks through a real concurrency bug the Phase 6 gate test
-caught and how it was fixed), §24 for the security pass, and §25 for the
-live deployment (with three more real bugs deploying surfaced and fixed).
+for what's next and what gates it, §19–§23, §26, and §27 for what Phases
+2–8 shipped (§23 walks through a real concurrency bug the Phase 6 gate
+test caught and how it was fixed), §24 for the security pass, and §25 for
+the live deployment (with three more real bugs deploying surfaced and
+fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.
 API at `api.laandry.com` (or `api-dusky-nine-29.vercel.app` if that

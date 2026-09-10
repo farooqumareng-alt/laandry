@@ -348,8 +348,8 @@ accommodates all of these later without an order-model rewrite.
 | 5 | Provider onboarding, capabilities, availability | — | ✅ Done — 84/84 tests passing (see §22) |
 | 6 | Matching, offers, atomic acceptance | Concurrency test passing | ✅ Done — 93/93 tests passing (see §23) |
 | 7 | Pickup, verification, bag/item/weight tracking | — | ✅ Done — 109/109 tests passing (see §26) |
-| 8 | Processing workflow, preference snapshot, incidents | — | Next |
-| 9 | Return/delivery, POD, tips, reviews | — | — |
+| 8 | Processing workflow, preference snapshot, incidents | — | ✅ Done — 122/122 tests passing (see §27) |
+| 9 | Return/delivery, POD, tips, reviews | — | Next |
 | 10 | Admin console | — | — |
 | 11 | Promotions, referrals, gift cards | — | — |
 | 12 | Store | — | — |
@@ -785,3 +785,76 @@ original Phase 1 schema already migrated live, so no new migration was
 needed, but the pickup/weight-verification *flow itself* hasn't been
 re-run against Supabase the way Phase 6's was; the in-memory-repository
 test suite is what's actually been exercised.
+
+## 27. Phase 8 — what shipped
+
+`apps/api/src/processing/` owns the second half of the order's time in a
+provider's hands: `BEING_CARED_FOR → FINISHING → READY_FOR_RETURN`, plus
+an incident-reporting pathway that runs alongside both without gating
+either. Two new tables — `Incident` and `ProcessingConfirmation` — needed
+a real migration this time (`20260910024419_phase8_processing_incidents`),
+applied against the live Supabase database, not just against the
+in-memory test repositories.
+
+**"Provider confirms required stages" is a server-side check, not a UI
+checklist.** `packages/domain/src/processing.ts` adds
+`requiredProcessingStages(preferences)`, a pure function deriving exactly
+which stages a given order's `preferenceSnapshot` requires: every order
+needs `wash` and `dry`; exactly one of `fold`/`hang` depending on the
+customer's saved finish preference; `iron` only if they requested it.
+`POST /provider/orders/:id/confirm-processing` takes the provider's
+`confirmedStages` and checks it against that required set with
+`stagesSatisfyRequirement` (order-independent, exact-match, no
+duplicates-standing-in-for-missing-stages) — a provider can't advance the
+order by checking three boxes when the customer's preferences call for
+four. A `ProcessingConfirmation` row records which stages were actually
+confirmed and by whom, same "evidence for a later dispute" rationale as
+Phase 7's `PickupVerification`/`WeightVerification`. The customer's care
+preferences were already rendered prominently on the provider's order
+screen since Phase 7 (`apps/app/src/app/provider/orders/[id].tsx`); this
+phase adds the checklist immediately below it, driven by the same
+preference snapshot.
+
+**Incidents are deliberately not part of the order state machine.**
+`packages/domain/src/incident.ts` models `Incident` as a two-state flag
+(`OPEN`/`RESOLVED`) with no transition table of its own, and no route in
+`processing/routes.ts` ever checks incident status before allowing
+`confirm-processing` or `ready-for-return` to proceed — reporting a
+damaged/missing/unsupported item is explicitly *not allowed to force a
+false all-clear*, per the original spec, but it's also never allowed to
+silently block the order either. `POST /provider/orders/:id/ready-for-return`
+surfaces the open-incident count in its response instead of hiding it, so
+nothing downstream has to rediscover an open incident by re-querying.
+Resolving an incident (`POST /orders/:id/incidents/:incidentId/resolve`)
+is deliberately staff-only — it reuses the existing "any"-scoped
+`order`/`write` permission grant (dispatch, ops_manager, admin,
+super_admin) rather than adding a new permission resource for one action;
+the assigned provider can report but not resolve, and the customer can
+read but not resolve.
+
+Every ownership check follows the established pattern: a provider not
+assigned to the order gets 404 reporting or reading incidents (never
+403), and `GET /orders/:id/incidents` reuses the same three-way
+customer-own/assigned-provider/staff-any check `GET
+/orders/:id/weight-verification` introduced in Phase 7.
+
+**Deliberately out of scope for Phase 8:** the customer can read
+incidents but not report their own (a "something arrived wrong" flow
+after delivery is Phase 9 territory, alongside POD); no photo evidence
+attaches to an incident report (same no-file-upload-architecture gap
+flagged since Phase 1); no `AuditEvent` row is written for a resolution,
+consistent with `AuditEvent`/`OrderStatusEvent` being modeled in the
+schema since Phase 1 but still not wired into *any* route in this
+codebase — a systemic gap, not something specific to this phase, so
+fixing it here would have been inconsistent with everywhere else that
+writes a status change today.
+
+**Verified — 122/122 tests passing** (74 in `apps/api`, 48 in
+`packages/domain`), full-repo typecheck clean, all three apps build,
+static web export renders every route. The Phase 8 migration was applied
+against the live Supabase database and the schema is confirmed in sync.
+**NOT VERIFIED:** the new routes haven't been exercised against that live
+database with a real end-to-end HTTP walk the way Phase 6's concurrency
+test and the Phase 7 live-deploy check were — only the migration itself
+and the in-memory-repository test suite have actually been run. Not yet
+redeployed to Vercel as of this writing.

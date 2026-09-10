@@ -22,6 +22,9 @@ import { PrismaOrderRepository } from "./order/prisma-repository";
 import type { OrderRepository } from "./order/repository";
 import { FakePaymentProvider } from "./payments/fake-provider";
 import type { PaymentProvider } from "./payments/provider";
+import { processingRoutes } from "./processing/routes";
+import { PrismaProcessingRepository } from "./processing/prisma-repository";
+import type { ProcessingRepository } from "./processing/repository";
 import { providerRoutes } from "./provider/routes";
 import { PrismaProviderRepository } from "./provider/prisma-repository";
 import type { ProviderRepository } from "./provider/repository";
@@ -35,6 +38,7 @@ export interface BuildAppOptions {
   providerRepository?: ProviderRepository;
   matchingRepository?: MatchingRepository;
   fulfillmentRepository?: FulfillmentRepository;
+  processingRepository?: ProcessingRepository;
   /** No real processor is wired up anywhere yet — see payments/provider.ts. Defaults to FakePaymentProvider even outside tests. */
   paymentProvider?: PaymentProvider;
 }
@@ -109,6 +113,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const providerRepository = options.providerRepository ?? new PrismaProviderRepository(getPrisma());
   const matchingRepository = options.matchingRepository ?? new PrismaMatchingRepository(getPrisma());
   const fulfillmentRepository = options.fulfillmentRepository ?? new PrismaFulfillmentRepository(getPrisma());
+  const processingRepository = options.processingRepository ?? new PrismaProcessingRepository(getPrisma());
   const paymentProvider = options.paymentProvider ?? new FakePaymentProvider();
 
   app.register(healthRoutes);
@@ -145,6 +150,16 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       providerRepository,
       matchingRepository,
       paymentProvider,
+      env,
+    }),
+  );
+  app.register(async (instance) =>
+    processingRoutes(instance, {
+      processingRepository,
+      orderRepository,
+      customerRepository,
+      providerRepository,
+      matchingRepository,
       env,
     }),
   );

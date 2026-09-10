@@ -2,8 +2,11 @@ import type {
   AddressInput,
   BookingServiceInput,
   ComputedQuote,
+  IncidentStatus,
+  IncidentType,
   LaandryPreferences,
   OrderStatus,
+  ProcessingStage,
   ProviderStatus,
   Role,
   ServiceType,
@@ -177,6 +180,19 @@ export interface WeightVerification {
   createdAt: string;
 }
 
+export interface Incident {
+  id: string;
+  orderId: string;
+  reportedByUserId: string;
+  type: IncidentType;
+  description: string;
+  status: IncidentStatus;
+  resolutionNote: string | null;
+  resolvedByUserId: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
 export class LaandryApiError extends Error {
   constructor(
     public readonly status: number,
@@ -297,6 +313,18 @@ export function createLaandryClient(options: LaandryClientOptions) {
     approveWeight: (orderId: string, paymentMethodToken: string) =>
       post<{ order: Order; quote: QuoteResponse }>(`/orders/${orderId}/approve-weight`, { paymentMethodToken }),
     declineWeight: (orderId: string) => post<{ order: Order }>(`/orders/${orderId}/decline-weight`),
+
+    // --- processing / incidents ---
+    /** 400 (LaandryApiError code "INCOMPLETE_STAGE_CONFIRMATION") carries `requiredStages` in the body so the UI can show exactly what's missing. */
+    confirmProcessing: (orderId: string, confirmedStages: ProcessingStage[]) =>
+      post<{ order: Order }>(`/provider/orders/${orderId}/confirm-processing`, { confirmedStages }),
+    markReadyForReturn: (orderId: string) =>
+      post<{ order: Order; openIncidentCount: number }>(`/provider/orders/${orderId}/ready-for-return`),
+    reportIncident: (orderId: string, input: { type: IncidentType; description: string }) =>
+      post<{ incident: Incident }>(`/provider/orders/${orderId}/incidents`, input),
+    listIncidents: (orderId: string) => request<{ incidents: Incident[] }>(`/orders/${orderId}/incidents`),
+    resolveIncident: (orderId: string, incidentId: string, resolutionNote: string) =>
+      post<{ incident: Incident }>(`/orders/${orderId}/incidents/${incidentId}/resolve`, { resolutionNote }),
   };
 }
 

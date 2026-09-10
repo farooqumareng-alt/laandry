@@ -62,6 +62,18 @@ enum ServiceType {
   TRAVEL
 }
 
+enum IncidentType {
+  DAMAGED_ITEM
+  MISSING_ITEM
+  UNSUPPORTED_ITEM
+  OTHER
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
 enum ProviderStatus {
   APPLICATION_STARTED
   IDENTITY_PENDING
@@ -220,11 +232,13 @@ model Order {
   quotes         Quote[]
   weightVerification   WeightVerification?
   pickupVerification   PickupVerification?
+  processingConfirmation ProcessingConfirmation?
   deliveryVerification DeliveryVerification?
   photos         PhotoEvidence[]
   payments       Payment[]
   tips           Tip[]
   review         Review?
+  incidents      Incident[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -327,6 +341,21 @@ model PickupVerification {
   @@map("pickup_verifications")
 }
 
+/// Records which required stages (per requiredProcessingStages() against
+/// the order's preferenceSnapshot) the provider confirmed before the order
+/// moved BEING_CARED_FOR -> FINISHING — same "evidence for a later dispute"
+/// rationale as PickupVerification/WeightVerification, not just a UI gate.
+model ProcessingConfirmation {
+  id               String   @id @default(uuid())
+  orderId          String   @unique
+  order            Order    @relation(fields: [orderId], references: [id])
+  confirmedStages  Json // string[] — see @laandry/domain ProcessingStage
+  confirmedByUserId String
+  createdAt        DateTime @default(now())
+
+  @@map("processing_confirmations")
+}
+
 model DeliveryVerification {
   id         String   @id @default(uuid())
   orderId    String   @unique
@@ -404,6 +433,25 @@ model Review {
   createdAt DateTime @default(now())
 
   @@map("reviews")
+}
+
+/// "Don't force the provider to mark everything normal" — §26/Phase 8.
+/// Reporting one never blocks the order's own FINISHING/READY_FOR_RETURN
+/// transitions; it's an independent record ops can review and resolve.
+model Incident {
+  id              String         @id @default(uuid())
+  orderId         String
+  order           Order          @relation(fields: [orderId], references: [id])
+  reportedByUserId String
+  type            IncidentType
+  description     String
+  status          IncidentStatus @default(OPEN)
+  resolutionNote  String?
+  resolvedByUserId String?
+  resolvedAt      DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@map("incidents")
 }
 
 /// Every privileged action in §5/§7 writes one of these.

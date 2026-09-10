@@ -6,3 +6,5 @@ export * from "./preferences";
 export * from "./address";
 export * from "./pricing";
 export * from "./provider-status";
+export * from "./incident";
+export * from "./processing";

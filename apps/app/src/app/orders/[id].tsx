@@ -2,13 +2,20 @@ import { useEffect, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import { CUSTOMER_MILESTONES, toCustomerMilestone } from '@laandry/domain';
-import type { Order, QuoteResponse, WeightVerification } from '@laandry/api-client';
+import type { Incident, Order, QuoteResponse, WeightVerification } from '@laandry/api-client';
 
 import { Button } from '@/components/button';
 import { RequireAuth } from '@/components/require-auth';
 import { TextField } from '@/components/text-field';
 import { useTheme } from '@/hooks/use-theme';
 import { api, LaandryApiError } from '@/lib/auth-store';
+
+const INCIDENT_TYPE_LABELS: Record<Incident['type'], string> = {
+  DAMAGED_ITEM: 'Damaged item',
+  MISSING_ITEM: 'Missing item',
+  UNSUPPORTED_ITEM: 'Unsupported item',
+  OTHER: 'Other',
+};
 
 function centsToLabel(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -110,15 +117,17 @@ function OrderDetail({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [weightVerification, setWeightVerification] = useState<WeightVerification | null>(null);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   function load() {
-    return Promise.all([api.getOrder(orderId), api.getWeightVerification(orderId)])
-      .then(([orderRes, weightRes]) => {
+    return Promise.all([api.getOrder(orderId), api.getWeightVerification(orderId), api.listIncidents(orderId)])
+      .then(([orderRes, weightRes, incidentsRes]) => {
         setOrder(orderRes.order);
         setQuote(orderRes.quote);
         setWeightVerification(weightRes.weightVerification);
+        setIncidents(incidentsRes.incidents);
       })
       .catch(() => setError('Couldn’t load this order.'));
   }
@@ -160,6 +169,28 @@ function OrderDetail({ orderId }: { orderId: string }) {
 
         {needsWeightApproval && weightVerification ? (
           <WeightApprovalCard orderId={orderId} verifiedWeightLb={weightVerification.verifiedWeightLb} onResolved={load} />
+        ) : null}
+
+        {incidents.length > 0 ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.ink, fontSize: 14, fontWeight: '600' }}>Reported issues</Text>
+            {incidents.map((incident) => (
+              <View key={incident.id} style={{ borderWidth: 1, borderColor: theme.line, borderRadius: 10, padding: 12, gap: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: theme.ink, fontSize: 13.5, fontWeight: '600' }}>
+                    {INCIDENT_TYPE_LABELS[incident.type]}
+                  </Text>
+                  <Text style={{ color: incident.status === 'OPEN' ? theme.accent : theme.inkSoft, fontSize: 12.5, fontWeight: '600' }}>
+                    {incident.status === 'OPEN' ? 'Being looked into' : 'Resolved'}
+                  </Text>
+                </View>
+                <Text style={{ color: theme.inkSoft, fontSize: 13.5 }}>{incident.description}</Text>
+                {incident.status === 'RESOLVED' && incident.resolutionNote ? (
+                  <Text style={{ color: theme.inkSoft, fontSize: 13, marginTop: 2 }}>{incident.resolutionNote}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
         ) : null}
 
         {order.items.length > 0 ? (
