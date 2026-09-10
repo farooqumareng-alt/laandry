@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { OrderStatus } from "@laandry/domain";
+import type { ComputedQuote, OrderStatus } from "@laandry/domain";
 
 import type {
   CreateBookingInput,
@@ -12,7 +12,7 @@ import type {
 export class InMemoryOrderRepository implements OrderRepository {
   private ordersById = new Map<string, OrderRecord>();
   private quotesByOrderId = new Map<string, QuoteRecord[]>();
-  private paymentsByOrderId = new Map<string, PaymentRecord>();
+  private paymentsByOrderId = new Map<string, PaymentRecord[]>();
 
   async createBooking(
     input: CreateBookingInput,
@@ -51,7 +51,7 @@ export class InMemoryOrderRepository implements OrderRepository {
 
     this.ordersById.set(order.id, order);
     this.quotesByOrderId.set(order.id, [quote]);
-    this.paymentsByOrderId.set(order.id, payment);
+    this.paymentsByOrderId.set(order.id, [payment]);
 
     return { order, quote, payment };
   }
@@ -76,5 +76,33 @@ export class InMemoryOrderRepository implements OrderRepository {
     const updated = { ...order, status };
     this.ordersById.set(orderId, updated);
     return updated;
+  }
+
+  async addQuoteVersion(orderId: string, quote: ComputedQuote): Promise<QuoteRecord> {
+    const existing = this.quotesByOrderId.get(orderId) ?? [];
+    const nextVersion = existing.length === 0 ? 1 : Math.max(...existing.map((q) => q.version)) + 1;
+    const record: QuoteRecord = {
+      id: randomUUID(),
+      orderId,
+      version: nextVersion,
+      estimatedWeightRangeLb: quote.estimatedWeightRangeLb,
+      lineItems: quote.lineItems,
+      subtotalCents: quote.subtotalCents,
+      promoDiscountCents: quote.promoDiscountCents,
+      totalCents: quote.totalCents,
+      createdAt: new Date(),
+    };
+    this.quotesByOrderId.set(orderId, [...existing, record]);
+    return record;
+  }
+
+  async addPayment(
+    orderId: string,
+    payment: { processorRef: string; amountCents: number; status: string },
+  ): Promise<PaymentRecord> {
+    const record: PaymentRecord = { id: randomUUID(), orderId, createdAt: new Date(), ...payment };
+    const existing = this.paymentsByOrderId.get(orderId) ?? [];
+    this.paymentsByOrderId.set(orderId, [...existing, record]);
+    return record;
   }
 }

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import type { LaandryPreferences, OrderStatus, ServiceType } from "@laandry/domain";
+import type { ComputedQuote, LaandryPreferences, OrderStatus, ServiceType } from "@laandry/domain";
 
 import type {
   CreateBookingInput,
@@ -79,6 +79,30 @@ export class PrismaOrderRepository implements OrderRepository {
   async updateStatus(orderId: string, status: OrderStatus): Promise<OrderRecord> {
     const order = await this.prisma.order.update({ where: { id: orderId }, data: { status }, include: { items: true } });
     return toOrderRecord(order);
+  }
+
+  async addQuoteVersion(orderId: string, quote: ComputedQuote): Promise<QuoteRecord> {
+    const latest = await this.prisma.quote.findFirst({ where: { orderId }, orderBy: { version: "desc" } });
+    const created = await this.prisma.quote.create({
+      data: {
+        orderId,
+        version: (latest?.version ?? 0) + 1,
+        estimatedWeightMinLb: quote.estimatedWeightRangeLb?.[0] ?? null,
+        estimatedWeightMaxLb: quote.estimatedWeightRangeLb?.[1] ?? null,
+        lineItems: quote.lineItems,
+        subtotalCents: quote.subtotalCents,
+        promoDiscountCents: quote.promoDiscountCents,
+        totalCents: quote.totalCents,
+      },
+    });
+    return toQuoteRecord(created);
+  }
+
+  async addPayment(
+    orderId: string,
+    payment: { processorRef: string; amountCents: number; status: string },
+  ): Promise<PaymentRecord> {
+    return this.prisma.payment.create({ data: { orderId, ...payment } });
   }
 }
 

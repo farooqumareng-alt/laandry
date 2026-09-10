@@ -1,11 +1,10 @@
 # Laandry — Phase 0 Foundations
 
-Status: Phases 0–6 done (repo scaffold, routing, auth/roles, customer
-onboarding, booking/pricing/payment, provider onboarding, and
-matching/offers/atomic acceptance — see §19–§23), a Phase-13 security
-slice pulled forward (§24), and a live deployment on real infrastructure
-(§25). Per the development process this repo follows, no feature work
-begins until each phase's gate passes.
+Status: Phases 0–7 done (repo scaffold through pickup/weight
+verification — see §19–§23 and §26), a Phase-13 security slice pulled
+forward (§24), and a live deployment on real infrastructure, now on
+laandry.com (§25). Per the development process this repo follows, no
+feature work begins until each phase's gate passes.
 
 ## 0. Repository audit
 
@@ -348,8 +347,8 @@ accommodates all of these later without an order-model rewrite.
 | 4 | Booking, pricing/quote, payment authorization | Quote never trusts client total (tested) | ✅ Done — 68/68 tests passing (see §21) |
 | 5 | Provider onboarding, capabilities, availability | — | ✅ Done — 84/84 tests passing (see §22) |
 | 6 | Matching, offers, atomic acceptance | Concurrency test passing | ✅ Done — 93/93 tests passing (see §23) |
-| 7 | Pickup, verification, bag/item/weight tracking | — | Next |
-| 8 | Processing workflow, preference snapshot, incidents | — | — |
+| 7 | Pickup, verification, bag/item/weight tracking | — | ✅ Done — 109/109 tests passing (see §26) |
+| 8 | Processing workflow, preference snapshot, incidents | — | Next |
 | 9 | Return/delivery, POD, tips, reviews | — | — |
 | 10 | Admin console | — | — |
 | 11 | Promotions, referrals, gift cards | — | — |
@@ -731,3 +730,58 @@ masking**, each fixed properly rather than patched around:
   `laandry-admin`), each with root directory pinned explicitly. Worth
   knowing if a future push triggers another auto-import: check
   `vercel project ls` for a project misconfigured the same way.
+
+**Update:** `laandry.com` itself was already registered and pointed at
+Vercel (by the user, separately) but never assigned to a project — fixed
+by assigning it to `laandry-app` and adding `api.laandry.com` /
+`admin.laandry.com` to the other two, with `CORS_ORIGINS` updated to match
+and verified with a real cross-origin request from that origin. The two
+subdomains needed A records at the registrar that only the user could
+add; both were confirmed live once added.
+
+## 26. Phase 7 — what shipped
+
+`apps/api/src/fulfillment/` owns `PickupVerification` and
+`WeightVerification` (both were already in the schema since Phase 1 —
+no migration needed this phase). Two different paths out of
+`PROVIDER_ASSIGNED`:
+
+- **Item-based orders** (garment-care, household) — `POST
+  /provider/orders/:id/pickup` records the pickup and walks the order
+  straight through `PICKED_UP → BEING_CARED_FOR` in one call, since the
+  items were already itemized at booking; there's nothing left to verify.
+- **Weight-based orders** (everyday laundry, travel) — pickup stops at
+  `PICKED_UP`. A separate `POST /provider/orders/:id/verify-weight` either
+  clears immediately (within the tolerance from `exceedsWeightTolerance`,
+  built in Phase 1 and unused until now) or leaves the order at
+  `PICKED_UP` with `requiredApproval: true` — deliberately *not* a new
+  `OrderStatus`; "pending approval" is just `PICKED_UP` plus a
+  `WeightVerification` row without a resolution yet, which needed no
+  change to the state machine at all.
+
+**Re-pricing an overage** is tier-resolution, not a continuous rate:
+`resolveWeightTierForPounds` (new in `packages/domain/src/pricing.ts`)
+maps the verified weight to whichever tier actually covers it, and
+`POST /orders/:id/approve-weight` recomputes a full `ComputedQuote` at
+that tier, authorizes the *difference* as a new payment (never edits the
+original), and only then advances the order — a declined additional
+payment leaves the order at `PICKED_UP`, tested explicitly. Declining
+the overage outright is a deliberate MVP simplification: the order still
+proceeds at the original price rather than attempting partial
+fulfillment (refusing laundry already in a provider's hands) — documented
+in the route's own comments, not hidden.
+
+Every ownership check follows the established pattern: a provider not
+assigned to the order gets 404 on pickup/weight endpoints (not 403,
+never confirming the order exists to someone without access), and a
+customer other than the order's owner gets 404 approving/declining someone
+else's overage.
+
+**Verified — 109/109 tests passing** (68 in `apps/api`, 41 in
+`packages/domain`), full-repo typecheck clean, all three apps build,
+static web export renders every route. **NOT VERIFIED:** against the live
+database specifically for this phase's new tables — they were part of the
+original Phase 1 schema already migrated live, so no new migration was
+needed, but the pickup/weight-verification *flow itself* hasn't been
+re-run against Supabase the way Phase 6's was; the in-memory-repository
+test suite is what's actually been exercised.

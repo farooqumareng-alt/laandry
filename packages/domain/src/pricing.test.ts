@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { bookingServiceInputSchema, computeQuote } from "./pricing";
+import { bookingServiceInputSchema, computeQuote, resolveWeightTierForPounds } from "./pricing";
 import { DEFAULT_PREFERENCES } from "./preferences";
 
 test("everyday laundry prices by weight tier and reports the estimated range", () => {
@@ -62,4 +62,14 @@ test("parsing a booking input strips any extraneous client-supplied field — a 
     totalCents: 1, // an attempted price-tampering field
   });
   assert.ok(!("totalCents" in parsed));
+});
+
+test("resolveWeightTierForPounds maps a verified weight to the tier that actually covers it", () => {
+  assert.equal(resolveWeightTierForPounds(15), "20_30", "below the lowest tier still bills at the lowest tier");
+  assert.equal(resolveWeightTierForPounds(25), "20_30");
+  assert.equal(resolveWeightTierForPounds(30), "20_30", "tier boundaries are inclusive on the top end");
+  assert.equal(resolveWeightTierForPounds(35), "30_40");
+  assert.equal(resolveWeightTierForPounds(55), "40_60");
+  assert.equal(resolveWeightTierForPounds(90), "60_PLUS");
+  assert.equal(resolveWeightTierForPounds(150), "60_PLUS", "there's no tier above 60_PLUS in the MVP catalog — it caps there");
 });

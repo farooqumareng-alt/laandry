@@ -100,22 +100,24 @@ npm run build        # every workspace with a build script
 
 ## Status
 
-Phases 0–6 done: repo scaffold/routing/design tokens/DB schema,
+Phases 0–7 done: repo scaffold/routing/design tokens/DB schema,
 auth/roles/authorization test harness, customer onboarding (addresses +
 preferences), booking/pricing/payment authorization, provider onboarding
 (application → capabilities/service areas → review → approval →
-availability → active), matching/offers/atomic acceptance, and a security
+availability → active), matching/offers/atomic acceptance, pickup/weight
+verification (with re-pricing on a verified overage), and a security
 hardening pass (helmet, CORS allowlist, rate limiting, log redaction, a
-non-leaking error handler) — front to back, 97 tests, `npm run test`. See
+non-leaking error handler) — front to back, 109 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 for what Phases 2–6 shipped
-(§23 walks through a real concurrency bug the Phase 6 gate test caught and
-how it was fixed), §24 for the security pass, and §25 for the live
-deployment (with three more real bugs deploying surfaced and fixed).
+for what's next and what gates it, §19–§23 and §26 for what Phases 2–7
+shipped (§23 walks through a real concurrency bug the Phase 6 gate test
+caught and how it was fixed), §24 for the security pass, and §25 for the
+live deployment (with three more real bugs deploying surfaced and fixed).
 
-**Live:** API at `api-dusky-nine-29.vercel.app`, the customer/provider app
-at `app-alpha-three-80.vercel.app`, admin console at
-`admin-five-tau-14.vercel.app` — all on Vercel, backed by a real Supabase
-Postgres. See §25 for what's genuinely verified there vs. still open
-(no real payment processor, admin has no login screen yet, native
-mobile isn't shipped anywhere).
+**Live:** `laandry.com` — the customer/provider app, on its real domain.
+API at `api.laandry.com` (or `api-dusky-nine-29.vercel.app` if that
+subdomain's DNS hasn't finished propagating), admin console at
+`admin.laandry.com` — all on Vercel, backed by a real Supabase Postgres.
+See §25 for what's genuinely verified there vs. still open (no real
+payment processor, admin has no login screen yet, native mobile isn't
+shipped anywhere).

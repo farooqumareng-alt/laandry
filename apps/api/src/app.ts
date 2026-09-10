@@ -11,6 +11,9 @@ import { PrismaCustomerRepository } from "./customer/prisma-repository";
 import type { CustomerRepository } from "./customer/repository";
 import { getPrisma } from "./db";
 import type { Env } from "./env";
+import { fulfillmentRoutes } from "./fulfillment/routes";
+import { PrismaFulfillmentRepository } from "./fulfillment/prisma-repository";
+import type { FulfillmentRepository } from "./fulfillment/repository";
 import { matchingRoutes } from "./matching/routes";
 import { PrismaMatchingRepository } from "./matching/prisma-repository";
 import type { MatchingRepository } from "./matching/repository";
@@ -31,6 +34,7 @@ export interface BuildAppOptions {
   orderRepository?: OrderRepository;
   providerRepository?: ProviderRepository;
   matchingRepository?: MatchingRepository;
+  fulfillmentRepository?: FulfillmentRepository;
   /** No real processor is wired up anywhere yet — see payments/provider.ts. Defaults to FakePaymentProvider even outside tests. */
   paymentProvider?: PaymentProvider;
 }
@@ -104,6 +108,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const orderRepository = options.orderRepository ?? new PrismaOrderRepository(getPrisma());
   const providerRepository = options.providerRepository ?? new PrismaProviderRepository(getPrisma());
   const matchingRepository = options.matchingRepository ?? new PrismaMatchingRepository(getPrisma());
+  const fulfillmentRepository = options.fulfillmentRepository ?? new PrismaFulfillmentRepository(getPrisma());
   const paymentProvider = options.paymentProvider ?? new FakePaymentProvider();
 
   app.register(healthRoutes);
@@ -131,6 +136,17 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   app.register(async (instance) => providerRoutes(instance, { authRepository, providerRepository, env }));
   app.register(async (instance) =>
     matchingRoutes(instance, { matchingRepository, providerRepository, orderRepository, customerRepository, env }),
+  );
+  app.register(async (instance) =>
+    fulfillmentRoutes(instance, {
+      fulfillmentRepository,
+      orderRepository,
+      customerRepository,
+      providerRepository,
+      matchingRepository,
+      paymentProvider,
+      env,
+    }),
   );
 
   return app;

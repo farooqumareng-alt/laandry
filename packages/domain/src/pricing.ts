@@ -98,6 +98,22 @@ function rateFor(catalog: Record<string, number>, description: string): number {
   return catalog[description] ?? catalog.Other!;
 }
 
+/**
+ * Phase 7: when a provider's verified weight exceeds the customer's
+ * authorized tolerance (see quote.ts exceedsWeightTolerance) and the
+ * customer approves the difference, the order is re-priced at whichever
+ * tier the *actual* weight falls into — not a continuous per-pound rate,
+ * since the pricing model is flat-rate-per-tier by design (see the module
+ * comment above). NOT_SURE is never returned — it's an input-only tier;
+ * a verified weight always resolves to a real range.
+ */
+export function resolveWeightTierForPounds(lb: number): WeightTier {
+  if (lb <= WEIGHT_TIER_RANGE_LB["20_30"][1]) return "20_30";
+  if (lb <= WEIGHT_TIER_RANGE_LB["30_40"][1]) return "30_40";
+  if (lb <= WEIGHT_TIER_RANGE_LB["40_60"][1]) return "40_60";
+  return "60_PLUS";
+}
+
 export function computeQuote(input: BookingServiceInput, preferences: LaandryPreferences): ComputedQuote {
   const lineItems: QuoteLineItem[] = [];
   let estimatedWeightRangeLb: [number, number] | null = null;

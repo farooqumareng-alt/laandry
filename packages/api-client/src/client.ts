@@ -158,6 +158,25 @@ export interface ProviderAssignment {
   acceptedAt: string;
 }
 
+export interface PickupVerification {
+  id: string;
+  orderId: string;
+  bagCount: number | null;
+  itemCount: number | null;
+  method: string;
+  verifiedAt: string;
+}
+
+export interface WeightVerification {
+  id: string;
+  orderId: string;
+  verifiedWeightLb: number;
+  verifiedByUserId: string;
+  requiredApproval: boolean;
+  approvedByCustomer: boolean | null;
+  createdAt: string;
+}
+
 export class LaandryApiError extends Error {
   constructor(
     public readonly status: number,
@@ -264,6 +283,20 @@ export function createLaandryClient(options: LaandryClientOptions) {
     acceptOffer: (offerId: string) => post<{ assignment: ProviderAssignment }>(`/provider/offers/${offerId}/accept`),
     /** Exact address only resolves once this provider is the assigned one for this order — see docs/ARCHITECTURE.md §11. */
     getProviderOrder: (orderId: string) => request<{ order: Order; address: Address }>(`/provider/orders/${orderId}`),
+
+    // --- pickup / weight verification ---
+    recordPickup: (orderId: string, input: { bagCount?: number; itemCount?: number; method: "qr" | "pin" | "signature" }) =>
+      post<{ order: Order }>(`/provider/orders/${orderId}/pickup`, input),
+    verifyWeight: (orderId: string, verifiedWeightLb: number) =>
+      post<{ order: Order; weightVerification: WeightVerification }>(`/provider/orders/${orderId}/verify-weight`, {
+        verifiedWeightLb,
+      }),
+    getWeightVerification: (orderId: string) =>
+      request<{ weightVerification: WeightVerification | null }>(`/orders/${orderId}/weight-verification`),
+    /** 402 (LaandryApiError code "PAYMENT_DECLINED") means the additional charge for the overage was declined — the order stays PICKED_UP, try again with a different token. */
+    approveWeight: (orderId: string, paymentMethodToken: string) =>
+      post<{ order: Order; quote: QuoteResponse }>(`/orders/${orderId}/approve-weight`, { paymentMethodToken }),
+    declineWeight: (orderId: string) => post<{ order: Order }>(`/orders/${orderId}/decline-weight`),
   };
 }
 

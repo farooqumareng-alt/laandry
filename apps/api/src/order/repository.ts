@@ -63,4 +63,9 @@ export interface OrderRepository {
   getLatestQuote(orderId: string): Promise<QuoteRecord | null>;
   /** A dumb setter — the caller asserts the transition is legal (see @laandry/domain assertOrderTransition) before calling this, same discipline as ProviderRepository.updateStatus. */
   updateStatus(orderId: string, status: OrderStatus): Promise<OrderRecord>;
+
+  /** Phase 7: re-pricing after a verified-weight overage. Version auto-increments from the current latest. */
+  addQuoteVersion(orderId: string, quote: ComputedQuote): Promise<QuoteRecord>;
+  /** Phase 7: the additional authorization for a weight-overage difference — a new ledger entry, never an edit to the original Payment row. */
+  addPayment(orderId: string, payment: { processorRef: string; amountCents: number; status: string }): Promise<PaymentRecord>;
 }
