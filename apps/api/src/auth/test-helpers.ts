@@ -12,6 +12,7 @@ import { FakePaymentProvider } from "../payments/fake-provider";
 import { FakePayoutProvider } from "../payouts/fake-payout-provider";
 import { InMemoryPayoutsRepository } from "../payouts/memory-repository";
 import { InMemoryProcessingRepository } from "../processing/memory-repository";
+import { InMemoryPromotionsRepository } from "../promotions/memory-repository";
 import { InMemoryProviderRepository } from "../provider/memory-repository";
 import { hashPassword } from "./password";
 import { InMemoryAuthRepository } from "./memory-repository";
@@ -45,6 +46,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
   const notificationProvider = new InMemoryNotificationProvider();
   const payoutsRepository = new InMemoryPayoutsRepository();
   const payoutProvider = new FakePayoutProvider();
+  const promotionsRepository = new InMemoryPromotionsRepository();
   const app = buildApp(env, {
     authRepository: repository,
     customerRepository,
@@ -58,6 +60,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     notificationProvider,
     payoutsRepository,
     payoutProvider,
+    promotionsRepository,
   });
   return {
     app,
@@ -73,6 +76,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     notificationProvider,
     payoutsRepository,
     payoutProvider,
+    promotionsRepository,
     env,
   };
 }

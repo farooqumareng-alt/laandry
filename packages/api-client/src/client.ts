@@ -2,11 +2,13 @@ import type {
   AddressInput,
   BookingServiceInput,
   ComputedQuote,
+  CreatePromotionInput,
   IncidentStatus,
   IncidentType,
   LaandryPreferences,
   OrderStatus,
   ProcessingStage,
+  PromotionDiscountType,
   ProviderStatus,
   Role,
   ServiceType,
@@ -105,9 +107,10 @@ export type BookingInput = BookingServiceInput & {
   pickupWindowEnd: string;
   paymentMethodToken: string;
   preferenceOverrides?: Partial<LaandryPreferences>;
+  promoCode?: string;
 };
 
-export type QuotePreviewInput = BookingServiceInput & { preferenceOverrides?: Partial<LaandryPreferences> };
+export type QuotePreviewInput = BookingServiceInput & { preferenceOverrides?: Partial<LaandryPreferences>; promoCode?: string };
 
 export interface ProviderProfileResponse {
   id: string;
@@ -241,6 +244,19 @@ export interface Payout {
   amountCents: number;
   status: string;
   processedAt: string | null;
+}
+
+export interface Promotion {
+  id: string;
+  code: string;
+  discountType: PromotionDiscountType;
+  discountValue: number;
+  active: boolean;
+  maxRedemptions: number | null;
+  perCustomerLimit: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  createdAt: string;
 }
 
 export class LaandryApiError extends Error {
@@ -422,6 +438,12 @@ export function createLaandryClient(options: LaandryClientOptions) {
     adminListPayouts: () => request<{ payouts: Payout[] }>("/admin/payouts"),
     /** Pays out every provider's pending earnings in one batch — see docs/ARCHITECTURE.md §31. */
     adminRunPayouts: () => post<{ payouts: Payout[]; providersPaid: number }>("/admin/payouts/run"),
+
+    // --- promo codes ---
+    adminCreatePromotion: (input: CreatePromotionInput) => post<{ promotion: Promotion }>("/admin/promotions", input),
+    adminListPromotions: () => request<{ promotions: Promotion[] }>("/admin/promotions"),
+    adminSetPromotionActive: (id: string, active: boolean) =>
+      request<{ promotion: Promotion }>(`/admin/promotions/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }),
   };
 }
 

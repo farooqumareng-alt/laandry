@@ -62,6 +62,11 @@ enum ServiceType {
   TRAVEL
 }
 
+enum PromotionDiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
 enum IncidentType {
   DAMAGED_ITEM
   MISSING_ITEM
@@ -239,6 +244,7 @@ model Order {
   tips           Tip[]
   review         Review?
   incidents      Incident[]
+  promotionRedemption PromotionRedemption?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -452,6 +458,42 @@ model Incident {
   createdAt       DateTime       @default(now())
 
   @@map("incidents")
+}
+
+/// Admin-created promo codes — Phase 11/§31. discountValue is a
+/// percentage (1-100) for PERCENTAGE or cents for FIXED_AMOUNT; see
+/// @laandry/domain createPromotionSchema for the validated input shape.
+model Promotion {
+  id               String                @id @default(uuid())
+  code             String                @unique
+  discountType     PromotionDiscountType
+  discountValue    Int
+  active           Boolean               @default(true)
+  maxRedemptions   Int?
+  perCustomerLimit Int                   @default(1)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  createdAt        DateTime              @default(now())
+
+  redemptions PromotionRedemption[]
+
+  @@map("promotions")
+}
+
+/// One row per order a promo code was actually applied to — @@unique on
+/// orderId means an order can never be double-discounted, and this is
+/// also what per-customer/global redemption-count checks count against.
+model PromotionRedemption {
+  id            String    @id @default(uuid())
+  promotionId   String
+  promotion     Promotion @relation(fields: [promotionId], references: [id])
+  customerId    String
+  orderId       String    @unique
+  order         Order     @relation(fields: [orderId], references: [id])
+  discountCents Int
+  createdAt     DateTime  @default(now())
+
+  @@map("promotion_redemptions")
 }
 
 /// Every privileged action in §5/§7 writes one of these.

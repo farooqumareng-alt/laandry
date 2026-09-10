@@ -353,7 +353,7 @@ accommodates all of these later without an order-model rewrite.
 | 10 | Admin console | — | ✅ Done — 136/136 apps/api+domain tests passing (see §29) |
 | — | *Out of sequence: real transactional email (Resend)* | — | ✅ Done — 142/142 tests passing (see §30) — triggered by real credentials becoming available, not by phase order |
 | — | *Out of sequence: provider earnings & payouts* | — | ✅ Done — 151/151 tests passing (see §31) — closes the gap §28/§29 flagged, ahead of the deferred-commerce phases below |
-| 11 | Promotions, referrals, gift cards | — | Next |
+| 11 | Promotions, referrals, gift cards | — | 🟡 Promotions done — 165/165 tests passing (see §32); referrals and gift cards still not built, each its own ledger/balance mechanism deliberately not rushed alongside this one |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
 
@@ -1219,3 +1219,67 @@ both earnings into 3220 cents, status `"paid"`** → the provider's own
 `GET /provider/payouts` shows it → `GET /provider/earnings`'s summary
 correctly moved the full amount from `pendingCents` to `paidOutCents`,
 landing on exactly 0 and 3220.
+
+## 32. Phase 11 (partial): promo codes
+
+Scoped to promotions only — referrals and gift cards remain unbuilt.
+Both are a materially different shape of problem (a cross-user
+qualifying-event ledger for referrals, a purchasable/redeemable stored
+balance for gift cards) that deserve their own focused pass rather than
+a shallow version rushed in alongside this one, the same scoping
+judgment call as Phase 10 choosing six real admin pages over twenty
+shallow ones.
+
+**The exact hook this used had been sitting unused since Phase 1.**
+Every `Quote`/`QuoteRecord` has carried a `promoDiscountCents` field —
+and `computeQuoteTotals(lineItems, promoDiscountCents)` has known how to
+fold it into `totalCents` — since the very first pricing pass; nothing
+had ever set it above `0` until now. New this phase: `Promotion` and
+`PromotionRedemption` (real Prisma models — the first `PricingRule`-
+adjacent tables actually built, migrated against the live Supabase
+database), `packages/domain/src/promotions.ts`'s
+`computePromotionDiscountCents` (floors, and caps at the subtotal —
+never a negative total) and `applyPromotionToQuote`.
+
+**A real bug caught by the test written before the wiring:**
+`applyPromotionToQuote`'s first version appended the discount as a
+negative line item and then called the shared `computeQuoteTotals` over
+*all* line items including that new one — which sums every line item
+into `subtotalCents` and *also* subtracts `promoDiscountCents`
+separately, so the discount got applied twice (a $35 order with a 10%
+code priced at $28.00 instead of $31.50). Fixed by computing totals from
+the original, pre-discount line items only, and appending the visible
+`"Promo: CODE"` line to the *returned* array afterward, never fed back
+into a totals calculation. Caught by
+`packages/domain/src/promotions.test.ts` before this ever reached a
+route — exactly the value of writing the pure-function test first.
+
+**One validation path serves both preview and the real charge.**
+`promotions/validate.ts`'s `validatePromotion` is the only place "is
+this code usable, right now, by this customer" is decided — checked
+against active/inactive, the `startsAt`/`endsAt` window, a global
+`maxRedemptions` ceiling, and a per-customer limit (defaulting to one
+use each) — so a code that previews as valid at `/quote-preview` can
+never turn out invalid only at the moment of actually booking, and vice
+versa. `@@unique` on `PromotionRedemption.orderId` makes a double
+discount on one order structurally impossible regardless of what the
+application code does.
+
+**Reuses the existing `pricing_rule` grant** (finance: read-only;
+ops_manager, admin, super_admin: read + write) rather than adding a new
+permission resource — a promo code is, functionally, a pricing rule;
+tested explicitly that finance can list codes but not create one.
+
+**Frontend:** the booking wizard's Review step gets a real promo-code
+field with an Apply button that re-prices through the same
+`/quote-preview` call, showing the discount line and the new total
+before the customer commits — the code is also sent through at the
+real booking regardless of whether Apply was clicked, so a typed-but-
+unapplied code still gets honored (or rejected with the same message)
+at the moment of charging. `apps/admin`'s Promotions page (replacing
+its Phase 1 placeholder) is a real create-code form plus a list with an
+Activate/Deactivate toggle.
+
+**Verified — 165/165 tests passing** (108 in `apps/api`: +8 this
+phase; 57 in `packages/domain`: +6 for `promotions.ts`), full-repo
+typecheck clean, `apps/admin`'s ESLint clean, all three apps build.

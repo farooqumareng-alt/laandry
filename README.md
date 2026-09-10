@@ -64,7 +64,7 @@ With all three running (web is the fastest way to click through — press
 **Customer journey** — laandry.com (`http://localhost:8081` in dev)
 1. `/register` — create an account
 2. `/account` — add a saved address
-3. `/book` — walk the 4-step wizard (any service; payment token `tok_visa` authorizes, `tok_declined` simulates a decline)
+3. `/book` — walk the 4-step wizard (any service; payment token `tok_visa` authorizes, `tok_declined` simulates a decline). Review has an optional promo code field — create one first at `/promotions` in the admin console (or `POST /admin/promotions`) to try it; "Apply" re-prices before you commit
 4. `/orders` — see it listed with its milestone; `/orders/[id]` shows the tracker + priced line items
 
 **Provider journey** — same app, different account
@@ -141,16 +141,21 @@ credentials/decisions existed — real transactional email via Resend
 (order-scheduled, delivery-complete, provider-approved) and real
 provider earnings/payouts (a user-confirmed 30% platform / 70% provider
 split, tips paid through at 100%, an admin-triggered payout batch
-action) — front to back, 151 tests, `npm run test`. See
+action). Phase 11 is partially done: promo codes are real (percentage
+or fixed-amount, redemption limits, applied at booking); referrals and
+gift cards are still unbuilt, deliberately — front to back, 165 tests,
+`npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26–§31 for what shipped
+for what's next and what gates it, §19–§23 and §26–§32 for what shipped
 (§23 walks through a real concurrency bug the Phase 6 gate test caught
 and how it was fixed; §29 walks through a real Content-Type/empty-body
 bug its own live check caught, that had been silently breaking every
 bodyless POST call — Go Active, Start Delivery, and the like — in the
 live app; §30 covers the real email integration, §31 the earnings/
-payouts ledger), §24 for the security pass, and §25 for the live
-deployment (with three more real bugs deploying surfaced and fixed).
+payouts ledger, §32 the promo-code engine — including a real
+double-discount bug its own test caught before it ever reached a
+route), §24 for the security pass, and §25 for the live deployment
+(with three more real bugs deploying surfaced and fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.
 API at `api.laandry.com` (or `api-dusky-nine-29.vercel.app` if that

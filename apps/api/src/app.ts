@@ -36,6 +36,9 @@ import type { PayoutsRepository } from "./payouts/repository";
 import { processingRoutes } from "./processing/routes";
 import { PrismaProcessingRepository } from "./processing/prisma-repository";
 import type { ProcessingRepository } from "./processing/repository";
+import { promotionsRoutes } from "./promotions/routes";
+import { PrismaPromotionsRepository } from "./promotions/prisma-repository";
+import type { PromotionsRepository } from "./promotions/repository";
 import { providerRoutes } from "./provider/routes";
 import { PrismaProviderRepository } from "./provider/prisma-repository";
 import type { ProviderRepository } from "./provider/repository";
@@ -58,6 +61,7 @@ export interface BuildAppOptions {
   payoutsRepository?: PayoutsRepository;
   /** No real payout processor credentials exist — see payouts/payout-provider.ts. Defaults to FakePayoutProvider even outside tests. */
   payoutProvider?: PayoutProvider;
+  promotionsRepository?: PromotionsRepository;
 }
 
 /**
@@ -140,6 +144,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       : new InMemoryNotificationProvider());
   const payoutsRepository = options.payoutsRepository ?? new PrismaPayoutsRepository(getPrisma());
   const payoutProvider = options.payoutProvider ?? new FakePayoutProvider();
+  const promotionsRepository = options.promotionsRepository ?? new PrismaPromotionsRepository(getPrisma());
 
   app.register(healthRoutes);
   app.register(async (instance) =>
@@ -159,6 +164,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       authRepository,
       paymentProvider,
       notificationProvider,
+      promotionsRepository,
       env,
       onOrderBooked: async (input) => {
         await matchingRepository.dispatchOrder(input);
@@ -209,6 +215,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   app.register(async (instance) =>
     payoutsRoutes(instance, { payoutsRepository, providerRepository, payoutProvider, env }),
   );
+  app.register(async (instance) => promotionsRoutes(instance, { promotionsRepository, env }));
 
   return app;
 }

@@ -39,6 +39,15 @@ function isItemBased(service: ServiceType): boolean {
   return service === 'FORMAL_SPECIAL_CARE' || service === 'BEDDING_HOUSEHOLD';
 }
 
+const PROMO_ERROR_MESSAGES: Record<string, string> = {
+  PROMO_NOT_FOUND: 'That code isn’t valid.',
+  PROMO_INACTIVE: 'That code isn’t active.',
+  PROMO_EXPIRED: 'That code has expired.',
+  PROMO_NOT_YET_ACTIVE: 'That code isn’t active yet.',
+  PROMO_MAX_REDEMPTIONS_REACHED: 'That code has been fully redeemed.',
+  PROMO_ALREADY_USED_BY_CUSTOMER: 'You’ve already used that code.',
+};
+
 interface ItemLine {
   description: string;
   quantity: number;
@@ -94,6 +103,10 @@ function BookingWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [promoCode, setPromoCode] = useState('');
+  const [promoApplying, setPromoApplying] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+
   useEffect(() => {
     api.getProfile().then((profile) => {
       setPreferences(profile.preferences);
@@ -122,6 +135,23 @@ function BookingWizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  async function onApplyPromo() {
+    if (!serviceInput || !promoCode.trim()) return;
+    setPromoApplying(true);
+    setPromoError(null);
+    try {
+      const result = await api.quotePreview({ ...serviceInput, preferenceOverrides: preferences, promoCode: promoCode.trim() });
+      setQuote(result);
+    } catch (err) {
+      setPromoError(
+        (err instanceof LaandryApiError && err.code ? PROMO_ERROR_MESSAGES[err.code] : undefined) ??
+          'Couldn’t apply that code — please try again.',
+      );
+    } finally {
+      setPromoApplying(false);
+    }
+  }
+
   function addItem(description: string) {
     setItems((prev) => {
       const existing = prev.find((i) => i.description === description);
@@ -149,11 +179,14 @@ function BookingWizard() {
         pickupWindowEnd: win.end.toISOString(),
         paymentMethodToken,
         preferenceOverrides: preferences,
+        promoCode: promoCode.trim() || undefined,
       });
       router.replace({ pathname: '/orders/[id]', params: { id: order.id } });
     } catch (err) {
       if (err instanceof LaandryApiError && err.code === 'PAYMENT_DECLINED') {
         setError('That payment method was declined. Try a different one.');
+      } else if (err instanceof LaandryApiError && err.code && PROMO_ERROR_MESSAGES[err.code]) {
+        setError(PROMO_ERROR_MESSAGES[err.code]);
       } else {
         setError('Couldn’t schedule your Laandry — please try again.');
       }
@@ -353,6 +386,27 @@ function BookingWizard() {
                 </View>
               </View>
             ) : null}
+
+            <View style={{ gap: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
+                <View style={{ flex: 1 }}>
+                  <TextField
+                    label="Promo code"
+                    value={promoCode}
+                    onChangeText={(v) => {
+                      setPromoCode(v);
+                      setPromoError(null);
+                    }}
+                    autoCapitalize="characters"
+                    placeholder="Optional"
+                  />
+                </View>
+                <View style={{ marginBottom: 2 }}>
+                  <Button label="Apply" variant="secondary" onPress={onApplyPromo} loading={promoApplying} disabled={!promoCode.trim()} />
+                </View>
+              </View>
+              {promoError ? <Text style={{ color: theme.danger, fontSize: 13 }}>{promoError}</Text> : null}
+            </View>
 
             <TextField
               label="Payment method (test token)"

@@ -27,6 +27,14 @@ export const quoteSchema = z.object({
 });
 export type Quote = z.infer<typeof quoteSchema>;
 
+/** The minimal shape promotions.ts's applyPromotionToQuote needs — satisfied structurally by both pricing.ts's ComputedQuote and apps/api's QuoteRecord, without either importing the other. */
+export interface ComputedQuoteShape {
+  lineItems: QuoteLineItem[];
+  subtotalCents: number;
+  promoDiscountCents: number;
+  totalCents: number;
+}
+
 /**
  * Recomputes subtotal/total from line items server-side. Used to verify
  * that a stored/incoming Quote is internally consistent — this is the

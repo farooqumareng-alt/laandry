@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
+  applyPromotionToQuote,
   bookingServiceInputSchema,
   computeQuote,
   hasPermission,
@@ -16,6 +17,8 @@ import type { Env } from "../env";
 import { orderScheduledEmail } from "../notifications/templates";
 import type { NotificationProvider } from "../notifications/provider";
 import type { PaymentProvider } from "../payments/provider";
+import type { PromotionRecord, PromotionsRepository } from "../promotions/repository";
+import { validatePromotion } from "../promotions/validate";
 import type { OrderRepository } from "./repository";
 
 const createOrderSchema = z
@@ -25,11 +28,12 @@ const createOrderSchema = z
     pickupWindowEnd: z.string().datetime(),
     paymentMethodToken: z.string().min(1),
     preferenceOverrides: laandryPreferencesSchema.partial().optional(),
+    promoCode: z.string().min(1).max(20).optional(),
   })
   .and(bookingServiceInputSchema);
 
 const quotePreviewSchema = z
-  .object({ preferenceOverrides: laandryPreferencesSchema.partial().optional() })
+  .object({ preferenceOverrides: laandryPreferencesSchema.partial().optional(), promoCode: z.string().min(1).max(20).optional() })
   .and(bookingServiceInputSchema);
 
 const idParamSchema = z.object({ id: z.string().uuid() });
@@ -41,6 +45,7 @@ export interface OrderRoutesDeps {
   authRepository: AuthRepository;
   paymentProvider: PaymentProvider;
   notificationProvider: NotificationProvider;
+  promotionsRepository: PromotionsRepository;
   env: Env;
   /** Runs after a booking is created — dispatches wave-1 offers. Best-effort: a dispatch failure doesn't fail the booking, since the order and its payment are already valid; see app.ts. */
   onOrderBooked?: (input: {
@@ -62,7 +67,8 @@ export interface OrderRoutesDeps {
  * result. See order.test.ts for the test that actually proves this.
  */
 export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
-  const { orderRepository, customerRepository, authRepository, paymentProvider, notificationProvider, env } = deps;
+  const { orderRepository, customerRepository, authRepository, paymentProvider, notificationProvider, promotionsRepository, env } =
+    deps;
   const auth = requireAuth(env.JWT_SECRET);
 
   // No persistence, no payment — just runs the same computeQuote() the
@@ -78,7 +84,15 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
       return reply.code(404).send({ error: "CUSTOMER_PROFILE_NOT_FOUND" });
     }
     const preferenceSnapshot = { ...profile.preferences, ...body.data.preferenceOverrides };
-    return reply.send(computeQuote(body.data, preferenceSnapshot));
+    let quote = computeQuote(body.data, preferenceSnapshot);
+
+    if (body.data.promoCode) {
+      const result = await validatePromotion(promotionsRepository, body.data.promoCode, profile.id);
+      if ("error" in result) return reply.code(400).send({ error: result.error });
+      quote = applyPromotionToQuote(quote, result.promotion, result.promotion.code);
+    }
+
+    return reply.send(quote);
   });
 
   app.post("/orders", { preHandler: [auth, requireRole("customer")] }, async (request, reply) => {
@@ -100,7 +114,15 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
     }
 
     const preferenceSnapshot = { ...profile.preferences, ...body.data.preferenceOverrides };
-    const quote = computeQuote(body.data, preferenceSnapshot);
+    let quote = computeQuote(body.data, preferenceSnapshot);
+
+    let appliedPromotion: PromotionRecord | null = null;
+    if (body.data.promoCode) {
+      const result = await validatePromotion(promotionsRepository, body.data.promoCode, profile.id);
+      if ("error" in result) return reply.code(400).send({ error: result.error });
+      appliedPromotion = result.promotion;
+      quote = applyPromotionToQuote(quote, result.promotion, result.promotion.code);
+    }
 
     const authorization = await paymentProvider.authorize({
       customerId: profile.id,
@@ -142,6 +164,23 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
       });
     } catch (err) {
       request.log.error({ err, orderId: order.id }, "dispatch failed after booking");
+    }
+
+    // The charge already happened at the discounted total regardless of
+    // whether this bookkeeping record succeeds; @@unique on orderId at
+    // the schema level makes a duplicate redemption structurally
+    // impossible even if this were somehow called twice.
+    if (appliedPromotion) {
+      try {
+        await promotionsRepository.recordRedemption({
+          promotionId: appliedPromotion.id,
+          customerId: profile.id,
+          orderId: order.id,
+          discountCents: savedQuote.promoDiscountCents,
+        });
+      } catch (err) {
+        request.log.error({ err, orderId: order.id }, "recording promotion redemption failed");
+      }
     }
 
     // Best-effort, same as dispatch above — a failed or skipped email
