@@ -926,8 +926,16 @@ gap flagged since Phase 1).
 
 **Verified — 132/132 tests passing** (84 in `apps/api`, 48 in
 `packages/domain`), full-repo typecheck clean, all three apps build,
-static web export renders every route. **NOT VERIFIED (yet):** against
-the live Supabase database with a real HTTP walk the way Phases 6–8's
-live checks were — only the in-memory test suite has actually been run
-as of this section being written; a live redeploy and E2E walk are the
-next step before this phase is called fully done.
+static web export renders every route. Redeployed live (`laandry-api`
+and `laandry-app`) and walked end to end against the real Supabase
+database with real HTTP requests: booked and processed an order through
+to `READY_FOR_RETURN` → start-delivery → **delivery-failed → a
+complete-delivery attempt correctly rejected 409 while
+`DELIVERY_FAILED`** → retry-delivery → complete-delivery with a real
+`DeliveryVerification` row → customer reads the POD back → two separate
+tips, each its own ledger row → a declined tip correctly rejected 402
+with no row created → a review submitted, then **a duplicate submission
+correctly rejected 409 `REVIEW_ALREADY_SUBMITTED`** → the assigned
+provider reads the review back. `api.laandry.com`'s own DNS is still
+unresolved (same pre-existing issue as §25/§27, verified via the stable
+`api-dusky-nine-29.vercel.app` alias as before).
