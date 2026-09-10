@@ -851,10 +851,17 @@ writes a status change today.
 
 **Verified — 122/122 tests passing** (74 in `apps/api`, 48 in
 `packages/domain`), full-repo typecheck clean, all three apps build,
-static web export renders every route. The Phase 8 migration was applied
-against the live Supabase database and the schema is confirmed in sync.
-**NOT VERIFIED:** the new routes haven't been exercised against that live
-database with a real end-to-end HTTP walk the way Phase 6's concurrency
-test and the Phase 7 live-deploy check were — only the migration itself
-and the in-memory-repository test suite have actually been run. Not yet
-redeployed to Vercel as of this writing.
+static web export renders every route. Redeployed live (`laandry-api`
+and `laandry-app`, both re-aliased to their custom domains) and walked
+end to end against the real Supabase database with real HTTP requests,
+not just the in-memory test suite: register → address → set ironing
+preference → provider apply/onboard/admin-approve/activate → book →
+accept → pickup → **confirm-processing with an incomplete stage set
+correctly rejected 400 `INCOMPLETE_STAGE_CONFIRMATION`** → report an
+incident (`OPEN`) → confirm-processing with the complete,
+preference-matched stage set → `FINISHING` → ready-for-return →
+**`openIncidentCount: 1`, not hidden** → customer reads the incident
+back. `api.laandry.com` itself still doesn't resolve from outside
+Vercel's own alias system (same unresolved DNS issue as §25 — verified
+via the stable `api-dusky-nine-29.vercel.app` alias instead, same
+workaround as every prior phase's live check).
