@@ -42,6 +42,9 @@ import type { PromotionsRepository } from "./promotions/repository";
 import { providerRoutes } from "./provider/routes";
 import { PrismaProviderRepository } from "./provider/prisma-repository";
 import type { ProviderRepository } from "./provider/repository";
+import { referralsRoutes } from "./referrals/routes";
+import { PrismaReferralsRepository } from "./referrals/prisma-repository";
+import type { ReferralsRepository } from "./referrals/repository";
 import { healthRoutes } from "./routes/health";
 
 export interface BuildAppOptions {
@@ -62,6 +65,7 @@ export interface BuildAppOptions {
   /** No real payout processor credentials exist — see payouts/payout-provider.ts. Defaults to FakePayoutProvider even outside tests. */
   payoutProvider?: PayoutProvider;
   promotionsRepository?: PromotionsRepository;
+  referralsRepository?: ReferralsRepository;
 }
 
 /**
@@ -145,6 +149,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const payoutsRepository = options.payoutsRepository ?? new PrismaPayoutsRepository(getPrisma());
   const payoutProvider = options.payoutProvider ?? new FakePayoutProvider();
   const promotionsRepository = options.promotionsRepository ?? new PrismaPromotionsRepository(getPrisma());
+  const referralsRepository = options.referralsRepository ?? new PrismaReferralsRepository(getPrisma());
 
   app.register(healthRoutes);
   app.register(async (instance) =>
@@ -153,6 +158,13 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       env,
       onCustomerRegistered: async (userId) => {
         await customerRepository.createProfile(userId);
+      },
+      onReferralCodeUsed: async (refereeUserId, code) => {
+        const referrerProfile = await customerRepository.getProfileByReferralCode(code.toUpperCase());
+        if (!referrerProfile) return; // unrecognized code — silently skipped, see routes.ts's comment
+        const refereeProfile = await customerRepository.getProfileByUserId(refereeUserId);
+        if (!refereeProfile || refereeProfile.id === referrerProfile.id) return; // self-referral guard, defensive — not reachable at registration since the referee profile is brand new
+        await referralsRepository.createReferral({ referrerId: referrerProfile.id, refereeId: refereeProfile.id, code: code.toUpperCase() });
       },
     }),
   );
@@ -165,6 +177,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       paymentProvider,
       notificationProvider,
       promotionsRepository,
+      referralsRepository,
       env,
       onOrderBooked: async (input) => {
         await matchingRepository.dispatchOrder(input);
@@ -209,6 +222,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
       paymentProvider,
       notificationProvider,
       payoutsRepository,
+      referralsRepository,
       env,
     }),
   );
@@ -216,6 +230,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
     payoutsRoutes(instance, { payoutsRepository, providerRepository, payoutProvider, env }),
   );
   app.register(async (instance) => promotionsRoutes(instance, { promotionsRepository, env }));
+  app.register(async (instance) => referralsRoutes(instance, { referralsRepository, customerRepository, env }));
 
   return app;
 }

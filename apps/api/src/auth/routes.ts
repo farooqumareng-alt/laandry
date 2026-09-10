@@ -13,6 +13,7 @@ import { hashRefreshToken } from "./tokens";
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(10, "Password must be at least 10 characters"),
+  referralCode: z.string().min(1).max(20).optional(),
 });
 
 const loginSchema = z.object({
@@ -38,6 +39,8 @@ export interface AuthRoutesDeps {
   env: Env;
   /** Runs after a new CUSTOMER account is created — provisions the CustomerProfile. Kept as a callback so this module doesn't need to know about ../customer. */
   onCustomerRegistered?: (userId: string) => Promise<void>;
+  /** Runs when registration includes a referralCode — links the new customer to whoever owns that code. Best-effort at the call site: an invalid/unrecognized code is silently skipped rather than failing registration (see the route's own comment) — a soft-fail this module doesn't need to know the reason for. */
+  onReferralCodeUsed?: (refereeUserId: string, code: string) => Promise<void>;
 }
 
 export function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps) {
@@ -57,6 +60,19 @@ export function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps) {
       const passwordHash = await hashPassword(body.data.password);
       const user = await repository.createUser({ email: body.data.email, role: "customer", passwordHash });
       await deps.onCustomerRegistered?.(user.id);
+
+      // Best-effort and deliberately silent on an unrecognized code — a
+      // typo'd or expired referral code shouldn't be able to block
+      // account creation, a critical path. Real, not hidden: documented
+      // here and in docs/ARCHITECTURE.md §32.
+      if (body.data.referralCode) {
+        try {
+          await deps.onReferralCodeUsed?.(user.id, body.data.referralCode);
+        } catch (err) {
+          request.log.error({ err, userId: user.id }, "referral code link failed");
+        }
+      }
+
       const session = await issueSession(repository, env, user.id, user.role);
       return reply.code(201).send({
         ...session,

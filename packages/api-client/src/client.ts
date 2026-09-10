@@ -10,6 +10,7 @@ import type {
   ProcessingStage,
   PromotionDiscountType,
   ProviderStatus,
+  ReferralStatus,
   Role,
   ServiceType,
 } from "@laandry/domain";
@@ -108,9 +109,14 @@ export type BookingInput = BookingServiceInput & {
   paymentMethodToken: string;
   preferenceOverrides?: Partial<LaandryPreferences>;
   promoCode?: string;
+  useAccountCredit?: boolean;
 };
 
-export type QuotePreviewInput = BookingServiceInput & { preferenceOverrides?: Partial<LaandryPreferences>; promoCode?: string };
+export type QuotePreviewInput = BookingServiceInput & {
+  preferenceOverrides?: Partial<LaandryPreferences>;
+  promoCode?: string;
+  useAccountCredit?: boolean;
+};
 
 export interface ProviderProfileResponse {
   id: string;
@@ -259,6 +265,25 @@ export interface Promotion {
   createdAt: string;
 }
 
+export interface Referral {
+  id: string;
+  referrerId: string;
+  refereeId: string;
+  code: string;
+  status: ReferralStatus;
+  qualifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  customerId: string;
+  amountCents: number;
+  reason: string;
+  orderId: string | null;
+  createdAt: string;
+}
+
 export class LaandryApiError extends Error {
   constructor(
     public readonly status: number,
@@ -314,7 +339,7 @@ export function createLaandryClient(options: LaandryClientOptions) {
     health: () => request<HealthResponse>("/health"),
 
     // --- auth ---
-    register: (input: { email: string; password: string }) => post<Session>("/auth/register", input),
+    register: (input: { email: string; password: string; referralCode?: string }) => post<Session>("/auth/register", input),
     login: (input: { email: string; password: string; mfaCode?: string }) => post<Session>("/auth/login", input),
     refresh: (refreshToken: string) => post<Session>("/auth/refresh", { refreshToken }),
     logout: (refreshToken: string) => post<void>("/auth/logout", { refreshToken }),
@@ -444,6 +469,11 @@ export function createLaandryClient(options: LaandryClientOptions) {
     adminListPromotions: () => request<{ promotions: Promotion[] }>("/admin/promotions"),
     adminSetPromotionActive: (id: string, active: boolean) =>
       request<{ promotion: Promotion }>(`/admin/promotions/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }),
+
+    // --- referrals / account credit ---
+    getReferralCode: () => request<{ code: string }>("/me/referral-code"),
+    getCredit: () => request<{ entries: CreditLedgerEntry[]; balanceCents: number }>("/me/credit"),
+    adminListReferrals: () => request<{ referrals: Referral[] }>("/admin/referrals"),
   };
 }
 

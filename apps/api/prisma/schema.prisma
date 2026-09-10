@@ -67,6 +67,11 @@ enum PromotionDiscountType {
   FIXED_AMOUNT
 }
 
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+}
+
 enum IncidentType {
   DAMAGED_ITEM
   MISSING_ITEM
@@ -131,10 +136,14 @@ model CustomerProfile {
 
   preferences         Json? // cold/warm wash, fragrance-free, softener, fold/hang, etc. — snapshotted per order at booking time
   preferredProviderId String?
+  referralCode         String? @unique // lazily generated on first GET /me/referral-code, not at registration — most customers never look at it
 
   addresses         Address[]
   orders            Order[]
   favoriteProviders FavoriteProvider[]
+  referralsMade     Referral[]            @relation("Referrer")
+  referredBy        Referral?             @relation("Referee")
+  creditLedger      AccountCreditLedger[]
 
   @@map("customer_profiles")
 }
@@ -494,6 +503,42 @@ model PromotionRedemption {
   createdAt     DateTime  @default(now())
 
   @@map("promotion_redemptions")
+}
+
+/// One row per customer who was ever referred — @@unique on refereeId
+/// means a customer can only ever be linked to one referrer, set once at
+/// registration. Stays PENDING until the referee's qualifying event (the
+/// first order that reaches DELIVERED — not signup; see
+/// docs/ARCHITECTURE.md §7's threat-model row on promo/referral abuse).
+model Referral {
+  id          String         @id @default(uuid())
+  referrerId  String
+  referrer    CustomerProfile @relation("Referrer", fields: [referrerId], references: [id])
+  refereeId   String         @unique
+  referee     CustomerProfile @relation("Referee", fields: [refereeId], references: [id])
+  code        String
+  status      ReferralStatus @default(PENDING)
+  qualifiedAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@map("referrals")
+}
+
+/// Immutable ledger, not a stored balance column — docs/ARCHITECTURE.md
+/// §10 ("every financial event ... is an immutable ledger entry, not an
+/// overwritten balance"), same discipline as ProviderEarning. Positive
+/// amountCents = credit granted (a qualifying referral); negative =
+/// credit spent (applied at a booking, orderId set).
+model AccountCreditLedger {
+  id          String   @id @default(uuid())
+  customerId  String
+  customer    CustomerProfile @relation(fields: [customerId], references: [id])
+  amountCents Int
+  reason      String
+  orderId     String?
+  createdAt   DateTime @default(now())
+
+  @@map("account_credit_ledger")
 }
 
 /// Every privileged action in §5/§7 writes one of these.

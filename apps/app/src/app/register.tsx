@@ -13,6 +13,7 @@ export default function RegisterScreen() {
   const theme = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,7 +23,7 @@ export default function RegisterScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await register(email.trim(), password);
+      await register(email.trim(), password, referralCode.trim() || undefined);
       router.replace('/preferences');
     } catch (err) {
       if (err instanceof LaandryApiError && err.code === 'EMAIL_ALREADY_REGISTERED') {
@@ -62,6 +63,13 @@ export default function RegisterScreen() {
           secureTextEntry
           autoComplete="new-password"
           error={passwordTooShort ? `At least ${MIN_PASSWORD_LENGTH} characters` : undefined}
+        />
+        <TextField
+          label="Referral code (optional)"
+          value={referralCode}
+          onChangeText={setReferralCode}
+          autoCapitalize="characters"
+          placeholder="Got one from a friend?"
         />
 
         {error ? <Text style={{ color: theme.danger, fontSize: 13.5 }}>{error}</Text> : null}

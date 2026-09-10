@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
+  applyAccountCreditToQuote,
   applyPromotionToQuote,
   bookingServiceInputSchema,
+  computeCreditBalanceCents,
   computeQuote,
   hasPermission,
   laandryPreferencesSchema,
@@ -19,6 +21,7 @@ import type { NotificationProvider } from "../notifications/provider";
 import type { PaymentProvider } from "../payments/provider";
 import type { PromotionRecord, PromotionsRepository } from "../promotions/repository";
 import { validatePromotion } from "../promotions/validate";
+import type { ReferralsRepository } from "../referrals/repository";
 import type { OrderRepository } from "./repository";
 
 const createOrderSchema = z
@@ -29,11 +32,16 @@ const createOrderSchema = z
     paymentMethodToken: z.string().min(1),
     preferenceOverrides: laandryPreferencesSchema.partial().optional(),
     promoCode: z.string().min(1).max(20).optional(),
+    useAccountCredit: z.boolean().optional(),
   })
   .and(bookingServiceInputSchema);
 
 const quotePreviewSchema = z
-  .object({ preferenceOverrides: laandryPreferencesSchema.partial().optional(), promoCode: z.string().min(1).max(20).optional() })
+  .object({
+    preferenceOverrides: laandryPreferencesSchema.partial().optional(),
+    promoCode: z.string().min(1).max(20).optional(),
+    useAccountCredit: z.boolean().optional(),
+  })
   .and(bookingServiceInputSchema);
 
 const idParamSchema = z.object({ id: z.string().uuid() });
@@ -46,6 +54,7 @@ export interface OrderRoutesDeps {
   paymentProvider: PaymentProvider;
   notificationProvider: NotificationProvider;
   promotionsRepository: PromotionsRepository;
+  referralsRepository: ReferralsRepository;
   env: Env;
   /** Runs after a booking is created — dispatches wave-1 offers. Best-effort: a dispatch failure doesn't fail the booking, since the order and its payment are already valid; see app.ts. */
   onOrderBooked?: (input: {
@@ -67,8 +76,16 @@ export interface OrderRoutesDeps {
  * result. See order.test.ts for the test that actually proves this.
  */
 export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
-  const { orderRepository, customerRepository, authRepository, paymentProvider, notificationProvider, promotionsRepository, env } =
-    deps;
+  const {
+    orderRepository,
+    customerRepository,
+    authRepository,
+    paymentProvider,
+    notificationProvider,
+    promotionsRepository,
+    referralsRepository,
+    env,
+  } = deps;
   const auth = requireAuth(env.JWT_SECRET);
 
   // No persistence, no payment — just runs the same computeQuote() the
@@ -90,6 +107,11 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
       const result = await validatePromotion(promotionsRepository, body.data.promoCode, profile.id);
       if ("error" in result) return reply.code(400).send({ error: result.error });
       quote = applyPromotionToQuote(quote, result.promotion, result.promotion.code);
+    }
+
+    if (body.data.useAccountCredit) {
+      const entries = await referralsRepository.listCreditEntriesForCustomer(profile.id);
+      quote = applyAccountCreditToQuote(quote, computeCreditBalanceCents(entries));
     }
 
     return reply.send(quote);
@@ -122,6 +144,15 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
       if ("error" in result) return reply.code(400).send({ error: result.error });
       appliedPromotion = result.promotion;
       quote = applyPromotionToQuote(quote, result.promotion, result.promotion.code);
+    }
+
+    let creditAppliedCents = 0;
+    if (body.data.useAccountCredit) {
+      const entries = await referralsRepository.listCreditEntriesForCustomer(profile.id);
+      const balanceCents = computeCreditBalanceCents(entries);
+      const totalBeforeCredit = quote.totalCents;
+      quote = applyAccountCreditToQuote(quote, balanceCents);
+      creditAppliedCents = totalBeforeCredit - quote.totalCents;
     }
 
     const authorization = await paymentProvider.authorize({
@@ -180,6 +211,24 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
         });
       } catch (err) {
         request.log.error({ err, orderId: order.id }, "recording promotion redemption failed");
+      }
+    }
+
+    // Same discipline: the charge already reflects the applied credit
+    // regardless of whether this ledger entry succeeds. A negative
+    // amount, same convention as every spend in AccountCreditLedger —
+    // the balance is always the sum of every entry, never a stored
+    // number that could drift from it.
+    if (creditAppliedCents > 0) {
+      try {
+        await referralsRepository.addCreditEntry({
+          customerId: profile.id,
+          amountCents: -creditAppliedCents,
+          reason: "spent_at_booking",
+          orderId: order.id,
+        });
+      } catch (err) {
+        request.log.error({ err, orderId: order.id }, "recording credit spend failed");
       }
     }
 

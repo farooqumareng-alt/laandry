@@ -18,6 +18,7 @@ export class InMemoryCustomerRepository implements CustomerRepository {
       userId,
       preferences: DEFAULT_PREFERENCES,
       preferredProviderId: null,
+      referralCode: null,
     };
     this.profilesById.set(profile.id, profile);
     return profile;
@@ -37,6 +38,19 @@ export class InMemoryCustomerRepository implements CustomerRepository {
     const updated = { ...profile, preferences };
     this.profilesById.set(profileId, updated);
     return updated;
+  }
+
+  async getOrCreateReferralCode(profileId: string): Promise<string> {
+    const profile = this.profilesById.get(profileId);
+    if (!profile) throw new Error(`No such customer profile: ${profileId}`);
+    if (profile.referralCode) return profile.referralCode;
+    const code = randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+    this.profilesById.set(profileId, { ...profile, referralCode: code });
+    return code;
+  }
+
+  async getProfileByReferralCode(code: string): Promise<CustomerProfileRecord | null> {
+    return [...this.profilesById.values()].find((p) => p.referralCode === code) ?? null;
   }
 
   async addAddress(input: CreateAddressInput): Promise<AddressRecord> {

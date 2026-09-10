@@ -11,6 +11,7 @@ export interface CustomerProfileRecord {
   userId: string;
   preferences: LaandryPreferences;
   preferredProviderId: string | null;
+  referralCode: string | null;
 }
 
 export interface AddressRecord {
@@ -45,6 +46,10 @@ export interface CustomerRepository {
   /** The reverse lookup — an Order only carries the CustomerProfile id, not the userId, so anything needing that customer's email (e.g. notifications) needs this first. */
   getProfileById(id: string): Promise<CustomerProfileRecord | null>;
   updatePreferences(profileId: string, preferences: LaandryPreferences): Promise<CustomerProfileRecord>;
+
+  /** Lazy — most customers never look at their referral code, so it's generated on first GET /me/referral-code, not at registration. Idempotent: a profile that already has one just returns it. */
+  getOrCreateReferralCode(profileId: string): Promise<string>;
+  getProfileByReferralCode(code: string): Promise<CustomerProfileRecord | null>;
 
   addAddress(input: CreateAddressInput): Promise<AddressRecord>;
   listAddresses(customerId: string): Promise<AddressRecord[]>;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { DEFAULT_PREFERENCES, laandryPreferencesSchema, type LaandryPreferences } from "@laandry/domain";
 
@@ -28,6 +29,7 @@ export class PrismaCustomerRepository implements CustomerRepository {
       userId: profile.userId,
       preferences: parsePreferences(profile.preferences),
       preferredProviderId: profile.preferredProviderId,
+      referralCode: profile.referralCode,
     };
   }
 
@@ -39,6 +41,7 @@ export class PrismaCustomerRepository implements CustomerRepository {
       userId: profile.userId,
       preferences: parsePreferences(profile.preferences),
       preferredProviderId: profile.preferredProviderId,
+      referralCode: profile.referralCode,
     };
   }
 
@@ -50,6 +53,7 @@ export class PrismaCustomerRepository implements CustomerRepository {
       userId: profile.userId,
       preferences: parsePreferences(profile.preferences),
       preferredProviderId: profile.preferredProviderId,
+      referralCode: profile.referralCode,
     };
   }
 
@@ -63,6 +67,29 @@ export class PrismaCustomerRepository implements CustomerRepository {
       userId: profile.userId,
       preferences: parsePreferences(profile.preferences),
       preferredProviderId: profile.preferredProviderId,
+      referralCode: profile.referralCode,
+    };
+  }
+
+  async getOrCreateReferralCode(profileId: string): Promise<string> {
+    const existing = await this.prisma.customerProfile.findUnique({ where: { id: profileId }, select: { referralCode: true } });
+    if (!existing) throw new Error(`No such customer profile: ${profileId}`);
+    if (existing.referralCode) return existing.referralCode;
+
+    const code = randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+    const updated = await this.prisma.customerProfile.update({ where: { id: profileId }, data: { referralCode: code } });
+    return updated.referralCode!;
+  }
+
+  async getProfileByReferralCode(code: string): Promise<CustomerProfileRecord | null> {
+    const profile = await this.prisma.customerProfile.findUnique({ where: { referralCode: code } });
+    if (!profile) return null;
+    return {
+      id: profile.id,
+      userId: profile.userId,
+      preferences: parsePreferences(profile.preferences),
+      preferredProviderId: profile.preferredProviderId,
+      referralCode: profile.referralCode,
     };
   }
 

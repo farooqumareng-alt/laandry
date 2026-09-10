@@ -66,6 +66,7 @@ With all three running (web is the fastest way to click through — press
 2. `/account` — add a saved address
 3. `/book` — walk the 4-step wizard (any service; payment token `tok_visa` authorizes, `tok_declined` simulates a decline). Review has an optional promo code field — create one first at `/promotions` in the admin console (or `POST /admin/promotions`) to try it; "Apply" re-prices before you commit
 4. `/orders` — see it listed with its milestone; `/orders/[id]` shows the tracker + priced line items
+5. `/referrals` shows your real code and credit balance — to see the full loop, `/register` a second account with that code, walk *that* account's own order through to Delivered (see the provider journey below), then check the first account's `/referrals` again: credit should now show up, and the second account gets a "use my credit" toggle at its own next `/book` Review step
 
 **Provider journey** — same app, different account
 1. `/providers` — apply (this is a separate account from any customer login, sign out first if needed)
@@ -141,12 +142,14 @@ credentials/decisions existed — real transactional email via Resend
 (order-scheduled, delivery-complete, provider-approved) and real
 provider earnings/payouts (a user-confirmed 30% platform / 70% provider
 split, tips paid through at 100%, an admin-triggered payout batch
-action). Phase 11 is partially done: promo codes are real (percentage
-or fixed-amount, redemption limits, applied at booking); referrals and
-gift cards are still unbuilt, deliberately — front to back, 165 tests,
-`npm run test`. See
+action). Phase 11 is mostly done: promo codes are real (percentage or
+fixed-amount, redemption limits, applied at booking) and so is the
+referral program (a real code per customer, credit granted to both
+parties only once the referee's first order is delivered — never at
+signup, and spendable at a future booking); gift cards are still
+unbuilt, deliberately — front to back, 177 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26–§32 for what shipped
+for what's next and what gates it, §19–§23 and §26–§33 for what shipped
 (§23 walks through a real concurrency bug the Phase 6 gate test caught
 and how it was fixed; §29 walks through a real Content-Type/empty-body
 bug its own live check caught, that had been silently breaking every
@@ -154,7 +157,8 @@ bodyless POST call — Go Active, Start Delivery, and the like — in the
 live app; §30 covers the real email integration, §31 the earnings/
 payouts ledger, §32 the promo-code engine — including a real
 double-discount bug its own test caught before it ever reached a
-route), §24 for the security pass, and §25 for the live deployment
+route — and §33 the referral program), §24 for the security pass, and
+§25 for the live deployment
 (with three more real bugs deploying surfaced and fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.

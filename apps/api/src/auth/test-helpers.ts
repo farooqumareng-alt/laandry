@@ -14,6 +14,7 @@ import { InMemoryPayoutsRepository } from "../payouts/memory-repository";
 import { InMemoryProcessingRepository } from "../processing/memory-repository";
 import { InMemoryPromotionsRepository } from "../promotions/memory-repository";
 import { InMemoryProviderRepository } from "../provider/memory-repository";
+import { InMemoryReferralsRepository } from "../referrals/memory-repository";
 import { hashPassword } from "./password";
 import { InMemoryAuthRepository } from "./memory-repository";
 
@@ -47,6 +48,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
   const payoutsRepository = new InMemoryPayoutsRepository();
   const payoutProvider = new FakePayoutProvider();
   const promotionsRepository = new InMemoryPromotionsRepository();
+  const referralsRepository = new InMemoryReferralsRepository();
   const app = buildApp(env, {
     authRepository: repository,
     customerRepository,
@@ -61,6 +63,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     payoutsRepository,
     payoutProvider,
     promotionsRepository,
+    referralsRepository,
   });
   return {
     app,
@@ -77,6 +80,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     payoutsRepository,
     payoutProvider,
     promotionsRepository,
+    referralsRepository,
     env,
   };
 }

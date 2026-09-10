@@ -104,8 +104,12 @@ function BookingWizard() {
   const [error, setError] = useState<string | null>(null);
 
   const [promoCode, setPromoCode] = useState('');
+  const [appliedPromoCode, setAppliedPromoCode] = useState<string | null>(null);
   const [promoApplying, setPromoApplying] = useState(false);
   const [promoError, setPromoError] = useState<string | null>(null);
+
+  const [creditBalanceCents, setCreditBalanceCents] = useState(0);
+  const [useCredit, setUseCredit] = useState(false);
 
   useEffect(() => {
     api.getProfile().then((profile) => {
@@ -113,6 +117,7 @@ function BookingWizard() {
       setAddresses(profile.addresses);
       if (profile.addresses[0]) setAddressId(profile.addresses[0].id);
     });
+    api.getCredit().then((res) => setCreditBalanceCents(res.balanceCents));
   }, []);
 
   const serviceInput: BookingServiceInput | null = !service
@@ -123,13 +128,20 @@ function BookingWizard() {
         : null
       : ({ service, weightTier } as BookingServiceInput);
 
+  function fetchQuote(overrides: { promoCode?: string | null; useAccountCredit?: boolean } = {}) {
+    if (!serviceInput) return Promise.resolve();
+    const promo = overrides.promoCode !== undefined ? overrides.promoCode : appliedPromoCode;
+    const credit = overrides.useAccountCredit !== undefined ? overrides.useAccountCredit : useCredit;
+    return api
+      .quotePreview({ ...serviceInput, preferenceOverrides: preferences, promoCode: promo ?? undefined, useAccountCredit: credit })
+      .then(setQuote);
+  }
+
   useEffect(() => {
     if (step !== 4 || !serviceInput) return;
     setQuoteLoading(true);
     setError(null);
-    api
-      .quotePreview({ ...serviceInput, preferenceOverrides: preferences })
-      .then(setQuote)
+    fetchQuote()
       .catch(() => setError('Couldn’t price this order — please try again.'))
       .finally(() => setQuoteLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,8 +152,8 @@ function BookingWizard() {
     setPromoApplying(true);
     setPromoError(null);
     try {
-      const result = await api.quotePreview({ ...serviceInput, preferenceOverrides: preferences, promoCode: promoCode.trim() });
-      setQuote(result);
+      await fetchQuote({ promoCode: promoCode.trim() });
+      setAppliedPromoCode(promoCode.trim());
     } catch (err) {
       setPromoError(
         (err instanceof LaandryApiError && err.code ? PROMO_ERROR_MESSAGES[err.code] : undefined) ??
@@ -149,6 +161,16 @@ function BookingWizard() {
       );
     } finally {
       setPromoApplying(false);
+    }
+  }
+
+  async function onToggleCredit(value: boolean) {
+    setUseCredit(value);
+    try {
+      await fetchQuote({ useAccountCredit: value });
+    } catch {
+      // Leave the toggle as the user set it — the existing quote just
+      // doesn't refresh; they can still submit at the last-good price.
     }
   }
 
@@ -180,6 +202,7 @@ function BookingWizard() {
         paymentMethodToken,
         preferenceOverrides: preferences,
         promoCode: promoCode.trim() || undefined,
+        useAccountCredit: useCredit,
       });
       router.replace({ pathname: '/orders/[id]', params: { id: order.id } });
     } catch (err) {
@@ -407,6 +430,14 @@ function BookingWizard() {
               </View>
               {promoError ? <Text style={{ color: theme.danger, fontSize: 13 }}>{promoError}</Text> : null}
             </View>
+
+            {creditBalanceCents > 0 ? (
+              <SwitchRow
+                label={`Use my ${centsToLabel(creditBalanceCents)} credit`}
+                value={useCredit}
+                onChange={onToggleCredit}
+              />
+            ) : null}
 
             <TextField
               label="Payment method (test token)"

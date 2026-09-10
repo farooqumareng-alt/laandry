@@ -79,8 +79,8 @@ export async function restoreSession(): Promise<void> {
   }
 }
 
-export async function register(email: string, password: string): Promise<void> {
-  const session = await api.register({ email, password });
+export async function register(email: string, password: string, referralCode?: string): Promise<void> {
+  const session = await api.register({ email, password, referralCode });
   await persistSession(session);
 }
 

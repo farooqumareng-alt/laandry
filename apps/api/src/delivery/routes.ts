@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { assertOrderTransition, computeOrderEarningCents, hasPermission } from "@laandry/domain";
+import { assertOrderTransition, computeOrderEarningCents, hasPermission, REFERRAL_CREDIT_CENTS } from "@laandry/domain";
 
 import { requireAuth, requireRole } from "../auth/plugin";
 import type { AuthRepository } from "../auth/repository";
@@ -13,6 +13,7 @@ import type { OrderRecord, OrderRepository } from "../order/repository";
 import type { PaymentProvider } from "../payments/provider";
 import type { PayoutsRepository } from "../payouts/repository";
 import type { ProviderRepository } from "../provider/repository";
+import type { ReferralsRepository } from "../referrals/repository";
 import type { DeliveryRepository } from "./repository";
 
 const completeDeliverySchema = z.object({ method: z.enum(["qr", "pin", "signature"]) });
@@ -45,6 +46,7 @@ export interface DeliveryRoutesDeps {
   paymentProvider: PaymentProvider;
   notificationProvider: NotificationProvider;
   payoutsRepository: PayoutsRepository;
+  referralsRepository: ReferralsRepository;
   env: Env;
 }
 
@@ -68,6 +70,7 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
     paymentProvider,
     notificationProvider,
     payoutsRepository,
+    referralsRepository,
     env,
   } = deps;
   const auth = requireAuth(env.JWT_SECRET);
@@ -183,6 +186,34 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
       }
     } catch (err) {
       request.log.error({ err, orderId: order.id }, "recording provider earning failed");
+    }
+
+    // The referral qualifying event — docs/ARCHITECTURE.md §7's
+    // threat-model row on promo/referral abuse: credit is granted on
+    // the referee's first order reaching DELIVERED, never at signup.
+    // "First" isn't tracked as a separate counter — a PENDING referral
+    // only ever exists once per referee (created at registration,
+    // moved straight to QUALIFIED here), so its mere presence already
+    // means "not yet qualified."
+    try {
+      const pendingReferral = await referralsRepository.getPendingReferralForReferee(order.customerId);
+      if (pendingReferral) {
+        await referralsRepository.qualifyReferral(pendingReferral.id);
+        await referralsRepository.addCreditEntry({
+          customerId: pendingReferral.referrerId,
+          amountCents: REFERRAL_CREDIT_CENTS,
+          reason: "referral_referrer",
+          orderId: order.id,
+        });
+        await referralsRepository.addCreditEntry({
+          customerId: pendingReferral.refereeId,
+          amountCents: REFERRAL_CREDIT_CENTS,
+          reason: "referral_referee",
+          orderId: order.id,
+        });
+      }
+    } catch (err) {
+      request.log.error({ err, orderId: order.id }, "qualifying referral failed");
     }
 
     // Best-effort, same discipline as every other notification call site.

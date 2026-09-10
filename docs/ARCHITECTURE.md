@@ -353,7 +353,7 @@ accommodates all of these later without an order-model rewrite.
 | 10 | Admin console | — | ✅ Done — 136/136 apps/api+domain tests passing (see §29) |
 | — | *Out of sequence: real transactional email (Resend)* | — | ✅ Done — 142/142 tests passing (see §30) — triggered by real credentials becoming available, not by phase order |
 | — | *Out of sequence: provider earnings & payouts* | — | ✅ Done — 151/151 tests passing (see §31) — closes the gap §28/§29 flagged, ahead of the deferred-commerce phases below |
-| 11 | Promotions, referrals, gift cards | — | 🟡 Promotions done — 165/165 tests passing (see §32); referrals and gift cards still not built, each its own ledger/balance mechanism deliberately not rushed alongside this one |
+| 11 | Promotions, referrals, gift cards | — | 🟡 Promotions and referrals done — 177/177 tests passing (see §32/§33); gift cards still not built, a purchasable/redeemable stored balance being a materially different mechanism from either |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
 
@@ -1290,3 +1290,69 @@ at exactly $38.25 (`promoDiscountCents: 675`) → booked it for real and
 **the actual charge was $38.25, not the $45.00 pre-discount
 subtotal** → a second booking attempt with the same code, same
 customer, correctly rejected 400 `PROMO_ALREADY_USED_BY_CUSTOMER`.
+
+## 33. Phase 11 (continued): referral program
+
+Gift cards remain the one unbuilt piece of Phase 11 — a purchasable,
+redeemable stored balance is a genuinely different mechanism from
+either promo codes (a code, not a balance) or referral credit (never
+purchased, only earned), and deserves its own pass.
+
+**A real, user-confirmed number, not an admin-configurable one.**
+Unlike promo codes (many different admin-created values),
+`REFERRAL_CREDIT_CENTS` in `packages/domain/src/referrals.ts` is a
+single global give-$10/get-$10 policy — same "illustrative MVP
+placeholder, not a real marketing decision" status as pricing.ts's
+catalog rates, just not admin-editable in this pass since a referral
+program is normally one policy, not many.
+
+**The qualifying event is real, not signup** — docs/ARCHITECTURE.md
+§7's threat-model row on promo/referral abuse names this explicitly.
+`Referral` starts `PENDING` at registration (linked via an optional
+`referralCode` field on the register payload — an unrecognized code is
+silently skipped, never fails account creation, a critical path);
+credit is only granted to both parties when the referee's order
+reaches `DELIVERED`, in `delivery/routes.ts`'s existing best-effort
+block, right next to where the provider's own earning is recorded for
+the same event. `Referral.refereeId` is `@unique` at the schema level,
+so "does a `PENDING` referral still exist for this customer" doubles as
+"has this referral already qualified" — no separate counter needed to
+know whether this is genuinely the first qualifying order.
+
+**`AccountCreditLedger` follows the exact same immutable-ledger
+discipline as `ProviderEarning`** (§10: "every financial event ... is
+an immutable ledger entry, not an overwritten balance") — a positive
+row per grant, a negative row per spend, the balance always the sum of
+every row, never a stored number that could drift from it
+(`computeCreditBalanceCents`). Spending composes cleanly on top of a
+promo discount: `applyAccountCreditToQuote` only ever adjusts
+`totalCents` and appends its own line item — it never touches
+`subtotalCents` or `promoDiscountCents`, so credit and a promo code can
+both apply to the same order without double-adjusting anything the
+other one already computed. Unlike the promo-discount bug in §32, this
+one's test passed on the first real run — the lesson from that bug
+(write the composition test explicitly) was applied going in, not
+learned again the hard way.
+
+**A real deployment-tooling gap surfaced this phase, not a code bug.**
+`prisma migrate dev` refused to run non-interactively this time — the
+new nullable-unique `referralCode` column triggered a confirmation
+prompt Prisma won't skip outside a TTY, unlike every earlier phase's
+migration. Worked around with `prisma migrate diff` (generating the raw
+SQL against the live database directly) written into a manually-created
+migration folder, applied with `prisma migrate deploy` — the
+non-interactive command meant for exactly this. Verified the generated
+SQL was the same additive, safe change `migrate dev` would have
+produced before applying it.
+
+**Frontend:** `apps/app`'s Referrals screen (replacing its Phase 1
+placeholder) shows the real code, the real available balance, and a
+real activity feed; registration gets an optional referral-code field;
+the booking wizard's Review step gets a "use my credit" toggle,
+re-pricing through the same `/quote-preview` call the promo Apply
+button already uses. `apps/admin`'s Referrals page (also replacing its
+placeholder) is a real read-only list.
+
+**Verified — 177/177 tests passing** (114 in `apps/api`: +6 this
+phase; 63 in `packages/domain`: +6 for `referrals.ts`), full-repo
+typecheck clean, `apps/admin`'s ESLint clean, all three apps build.
