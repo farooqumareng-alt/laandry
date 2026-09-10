@@ -32,4 +32,6 @@ export interface DeliveryRepository {
 
   addReview(input: { orderId: string; rating: number; comment: string | null }): Promise<ReviewRecord>;
   getReviewForOrder(orderId: string): Promise<ReviewRecord | null>;
+  /** Admin/ops-only — every review across every order. Newest first. */
+  listAllReviews(): Promise<ReviewRecord[]>;
 }

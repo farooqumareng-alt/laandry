@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   assertProviderStatusTransition,
   hasPermission,
+  PROVIDER_STATUSES,
   SERVICE_TYPES,
 } from "@laandry/domain";
 
@@ -31,6 +32,7 @@ const availabilitySchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.string().uuid() });
+const adminListProvidersQuerySchema = z.object({ status: z.enum(PROVIDER_STATUSES).optional() });
 
 export interface ProviderRoutesDeps {
   authRepository: AuthRepository;
@@ -211,9 +213,23 @@ export function providerRoutes(app: FastifyInstance, deps: ProviderRoutesDeps) {
     return reply.send({ profile: updated });
   });
 
-  // Minimal admin action — not the Phase 10 review-queue console, just the
-  // authorized state transition that console will eventually call. Exercises
-  // the provider_approval grant from the §5 role matrix for the first time.
+  // Admin console (Phase 10) — every provider profile, optionally narrowed
+  // to one status; "Provider Applications" is this same list filtered to
+  // REVIEW_PENDING client-side, not a separate query.
+  app.get("/admin/providers", { preHandler: [auth] }, async (request, reply) => {
+    if (!hasPermission(request.authUser!.role, "provider_approval", "read")) {
+      return reply.code(403).send({ error: "FORBIDDEN" });
+    }
+    const query = adminListProvidersQuerySchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: "INVALID_INPUT" });
+
+    const providers = await providerRepository.listAllProviders({ status: query.data.status });
+    return reply.send({ providers });
+  });
+
+  // The authorized state transition the Phase 10 console's Provider
+  // Applications page calls — built back in Phase 5 as a curl-only admin
+  // action, ahead of any UI actually calling it.
   app.post("/admin/providers/:id/approve", { preHandler: [auth] }, async (request, reply) => {
     if (!hasPermission(request.authUser!.role, "provider_approval", "write")) {
       return reply.code(403).send({ error: "FORBIDDEN" });

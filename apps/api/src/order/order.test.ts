@@ -281,3 +281,38 @@ test("a nonexistent order id returns 404, not 500", async () => {
   });
   assert.equal(res.statusCode, 404);
 });
+
+test("GET /admin/orders lists every order for staff, filterable by status, and is off-limits to a customer or provider", async () => {
+  const repos = buildTestApp();
+  const { app } = repos;
+  const customerA = await registerCustomerWithAddress(app, "admina@example.com");
+  const customerB = await registerCustomerWithAddress(app, "adminb@example.com");
+  await app.inject({
+    method: "POST",
+    url: "/orders",
+    headers: customerA.auth,
+    payload: { addressId: customerA.addressId, ...PICKUP_WINDOW, paymentMethodToken: "tok_visa", service: "FORMAL_SPECIAL_CARE", items: [{ description: "Shirt", quantity: 1 }] },
+  });
+  await app.inject({
+    method: "POST",
+    url: "/orders",
+    headers: customerB.auth,
+    payload: { addressId: customerB.addressId, ...PICKUP_WINDOW, paymentMethodToken: "tok_visa", service: "FORMAL_SPECIAL_CARE", items: [{ description: "Pants", quantity: 1 }] },
+  });
+
+  await seedUser(repos.repository, { email: "adminorders@example.com", password: "correct horse battery staple", role: "support" }, repos.customerRepository);
+  const login = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "adminorders@example.com", password: "correct horse battery staple" } });
+  const staffAuth = { authorization: `Bearer ${login.json().accessToken}` };
+
+  const all = await app.inject({ method: "GET", url: "/admin/orders", headers: staffAuth });
+  assert.equal(all.statusCode, 200);
+  assert.equal(all.json().orders.length, 2);
+
+  const filtered = await app.inject({ method: "GET", url: "/admin/orders?status=SCHEDULED", headers: staffAuth });
+  assert.equal(filtered.json().orders.length, 2);
+  const noneMatch = await app.inject({ method: "GET", url: "/admin/orders?status=DELIVERED", headers: staffAuth });
+  assert.equal(noneMatch.json().orders.length, 0);
+
+  const asCustomer = await app.inject({ method: "GET", url: "/admin/orders", headers: customerA.auth });
+  assert.equal(asCustomer.statusCode, 403);
+});

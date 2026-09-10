@@ -60,6 +60,8 @@ export interface OrderRepository {
   ): Promise<{ order: OrderRecord; quote: QuoteRecord; payment: PaymentRecord }>;
   getOrderById(id: string): Promise<OrderRecord | null>;
   listOrdersForCustomer(customerId: string): Promise<OrderRecord[]>;
+  /** Admin/ops-only — every order, optionally narrowed to one status. Newest first. */
+  listAllOrders(filter?: { status?: OrderStatus }): Promise<OrderRecord[]>;
   getLatestQuote(orderId: string): Promise<QuoteRecord | null>;
   /** A dumb setter — the caller asserts the transition is legal (see @laandry/domain assertOrderTransition) before calling this, same discipline as ProviderRepository.updateStatus. */
   updateStatus(orderId: string, status: OrderStatus): Promise<OrderRecord>;

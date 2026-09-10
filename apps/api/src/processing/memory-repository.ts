@@ -56,6 +56,12 @@ export class InMemoryProcessingRepository implements ProcessingRepository {
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
+  async listAllIncidents(filter?: { status?: IncidentStatus }): Promise<IncidentRecord[]> {
+    return [...this.incidentsById.values()]
+      .filter((incident) => !filter?.status || incident.status === filter.status)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
   async getIncidentById(id: string): Promise<IncidentRecord | null> {
     return this.incidentsById.get(id) ?? null;
   }

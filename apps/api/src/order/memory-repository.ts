@@ -64,6 +64,11 @@ export class InMemoryOrderRepository implements OrderRepository {
     return [...this.ordersById.values()].filter((o) => o.customerId === customerId);
   }
 
+  async listAllOrders(filter?: { status?: OrderStatus }): Promise<OrderRecord[]> {
+    const all = [...this.ordersById.values()].filter((o) => !filter?.status || o.status === filter.status);
+    return all.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
   async getLatestQuote(orderId: string): Promise<QuoteRecord | null> {
     const quotes = this.quotesByOrderId.get(orderId);
     if (!quotes || quotes.length === 0) return null;

@@ -5,6 +5,7 @@ import {
   computeQuote,
   hasPermission,
   laandryPreferencesSchema,
+  ORDER_STATUSES,
   type ServiceType,
 } from "@laandry/domain";
 
@@ -29,6 +30,7 @@ const quotePreviewSchema = z
   .and(bookingServiceInputSchema);
 
 const idParamSchema = z.object({ id: z.string().uuid() });
+const adminListOrdersQuerySchema = z.object({ status: z.enum(ORDER_STATUSES).optional() });
 
 export interface OrderRoutesDeps {
   orderRepository: OrderRepository;
@@ -177,5 +179,22 @@ export function orderRoutes(app: FastifyInstance, deps: OrderRoutesDeps) {
 
     const quote = await orderRepository.getLatestQuote(order.id);
     return reply.send({ order, quote });
+  });
+
+  // Admin/ops console (Phase 10) — the same "any"-scoped order/read grant
+  // GET /orders/:id already checks, just without an ownership concept
+  // since this isn't scoped to one customer. A customer or provider has
+  // only an "own" grant, so hasPermission with no isOwner override
+  // correctly returns false for both — this route is staff-only by
+  // construction, not by a separate role list to keep in sync.
+  app.get("/admin/orders", { preHandler: [auth] }, async (request, reply) => {
+    if (!hasPermission(request.authUser!.role, "order", "read")) {
+      return reply.code(403).send({ error: "FORBIDDEN" });
+    }
+    const query = adminListOrdersQuerySchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: "INVALID_INPUT" });
+
+    const orders = await orderRepository.listAllOrders({ status: query.data.status });
+    return reply.send({ orders });
   });
 }

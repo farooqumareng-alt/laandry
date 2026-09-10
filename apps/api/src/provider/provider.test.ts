@@ -210,3 +210,41 @@ test("an unauthenticated request to any provider route is rejected", async () =>
   const res = await app.inject({ method: "GET", url: "/provider/me" });
   assert.equal(res.statusCode, 401);
 });
+
+test("GET /admin/providers lists every provider with its capabilities for ops staff, filterable by status, and is off-limits to support", async () => {
+  const { app, repository, customerRepository } = buildTestApp();
+  const applicant = await applyAsProvider(app, "adminlist1@example.com");
+  await app.inject({
+    method: "PUT",
+    url: "/provider/capabilities",
+    headers: applicant.auth,
+    payload: { services: ["EVERYDAY_LAUNDRY", "TRAVEL"] },
+  });
+  await applyAsProvider(app, "adminlist2@example.com");
+
+  await seedUser(repository, { email: "opsmanager1@example.com", password: "correct horse battery staple", role: "ops_manager" }, customerRepository);
+  const opsLogin = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "opsmanager1@example.com", password: "correct horse battery staple" } });
+  const opsAuth = { authorization: `Bearer ${opsLogin.json().accessToken}` };
+
+  const all = await app.inject({ method: "GET", url: "/admin/providers", headers: opsAuth });
+  assert.equal(all.statusCode, 200);
+  assert.equal(all.json().providers.length, 2);
+  const withCapabilities = all.json().providers.find((p: { id: string }) => p.id === applicant.providerId);
+  assert.deepEqual([...withCapabilities.services].sort(), ["EVERYDAY_LAUNDRY", "TRAVEL"]);
+
+  const filtered = await app.inject({ method: "GET", url: "/admin/providers?status=APPLICATION_STARTED", headers: opsAuth });
+  assert.equal(filtered.json().providers.length, 2);
+  const noneMatch = await app.inject({ method: "GET", url: "/admin/providers?status=ACTIVE", headers: opsAuth });
+  assert.equal(noneMatch.json().providers.length, 0);
+
+  // support has an order/read grant but not provider_approval/read — a
+  // different resource — so this list is correctly off-limits to it.
+  await seedUser(repository, { email: "support2@example.com", password: "correct horse battery staple", role: "support" }, customerRepository);
+  const supportLogin = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "support2@example.com", password: "correct horse battery staple" } });
+  const asSupport = await app.inject({
+    method: "GET",
+    url: "/admin/providers",
+    headers: { authorization: `Bearer ${supportLogin.json().accessToken}` },
+  });
+  assert.equal(asSupport.statusCode, 403);
+});

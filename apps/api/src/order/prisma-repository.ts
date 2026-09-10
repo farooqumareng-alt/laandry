@@ -71,6 +71,15 @@ export class PrismaOrderRepository implements OrderRepository {
     return orders.map(toOrderRecord);
   }
 
+  async listAllOrders(filter?: { status?: OrderStatus }): Promise<OrderRecord[]> {
+    const orders = await this.prisma.order.findMany({
+      where: filter?.status ? { status: filter.status } : undefined,
+      include: { items: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return orders.map(toOrderRecord);
+  }
+
   async getLatestQuote(orderId: string): Promise<QuoteRecord | null> {
     const quote = await this.prisma.quote.findFirst({ where: { orderId }, orderBy: { version: "desc" } });
     return quote ? toQuoteRecord(quote) : null;

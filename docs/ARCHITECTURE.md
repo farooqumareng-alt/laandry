@@ -350,8 +350,8 @@ accommodates all of these later without an order-model rewrite.
 | 7 | Pickup, verification, bag/item/weight tracking | — | ✅ Done — 109/109 tests passing (see §26) |
 | 8 | Processing workflow, preference snapshot, incidents | — | ✅ Done — 122/122 tests passing (see §27) |
 | 9 | Return/delivery, POD, tips, reviews | — | ✅ Done — 132/132 tests passing (see §28) |
-| 10 | Admin console | — | Next |
-| 11 | Promotions, referrals, gift cards | — | — |
+| 10 | Admin console | — | ✅ Done — 136/136 apps/api+domain tests passing (see §29) |
+| 11 | Promotions, referrals, gift cards | — | Next |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
 
@@ -939,3 +939,90 @@ correctly rejected 409 `REVIEW_ALREADY_SUBMITTED`** → the assigned
 provider reads the review back. `api.laandry.com`'s own DNS is still
 unresolved (same pre-existing issue as §25/§27, verified via the stable
 `api-dusky-nine-29.vercel.app` alias as before).
+
+## 29. Phase 10 — what shipped
+
+The admin console (`apps/admin`) went from 20 unauthenticated Phase-1
+placeholder pages to a real, staff-authenticated ops tool for the
+operational core the API already has real data for. It closes the
+"admin console has no login screen" gap flagged as a known live issue
+since §25.
+
+**Real staff authentication, not a stub.** `apps/admin/src/lib/auth-store.ts`
+mirrors `apps/app`'s auth store (`/auth/login`, session persistence,
+`/me` restore-on-load) adapted for a web-only Next.js app — same
+documented localStorage tradeoff `apps/app`'s web fallback already
+carries (a browser XSS bug could read the token; real, not hidden — see
+that file's comment). Every route under `(protected)/` is a route group
+whose own `layout.tsx` gates on: signed in, role is an actual staff role
+(`support`/`dispatch`/`finance`/`ops_manager`/`admin`/`super_admin` —
+**not** `customer` or `provider`, since `/auth/login` itself isn't
+role-restricted and a provider account can authenticate against it just
+fine), and MFA enrolled. `/login` and `/mfa-setup` live outside that
+group so they render without the sidebar shell.
+
+**MFA enrollment is real, not deferred.** `POST /auth/mfa/enroll` and
+`/auth/mfa/verify` were built in Phase 2 and had no caller in any
+frontend until now — customers are exempt (`requiresMfa` excludes them)
+so `apps/app` never needed this flow. `apps/admin/src/app/mfa-setup/page.tsx`
+calls `mfaEnroll`, shows the raw TOTP secret and otpauth URI (no QR-code
+rendering — an untested new dependency for one screen wasn't worth
+adding), and calls `mfaVerify` before letting `(protected)/layout.tsx`'s
+redirect resolve.
+
+**Four new admin list endpoints, each reusing an existing permission
+grant rather than inventing a new one:** `GET /admin/orders` and
+`GET /admin/incidents` and `GET /admin/reviews` all gate on the same
+any-scoped `order`/`read` grant `GET /orders/:id` already checks —
+a customer or provider only has an "own"-scoped grant on that resource,
+so `hasPermission` with no ownership override correctly returns `false`
+for both, making these routes staff-only by construction instead of a
+separate role allowlist to keep in sync. `GET /admin/providers` gates on
+`provider_approval`/`read` instead — a different resource support/
+dispatch/finance don't have a grant on, matching §5's existing role
+matrix exactly (tested explicitly: support gets 403 listing providers
+but could list orders). Every list route accepts an optional
+`?status=` filter, validated against the same enum the domain layer
+already exports.
+
+**The order detail page is the "God view"** — it calls the exact same
+read endpoints the customer's and the provider's own order screens call
+(`GET /orders/:id`, weight-verification, delivery-verification,
+incidents, tips, review) rather than a new admin-specific aggregate
+endpoint, since staff's any-scoped grant already covers every one of
+them. Incidents can be resolved inline, right where an ops person is
+already looking at the rest of the order — reusing the same
+`POST /orders/:id/incidents/:incidentId/resolve` the standalone
+Incidents page's resolve action calls.
+
+**Deliberately still placeholders:** Customers, Service Areas, Pricing,
+Promotions, Gift Cards, Referrals, Products, Payments, Payouts, Refunds,
+Disputes, Reports, and Security/Audit. Most of these aren't a UI gap so
+much as a backend gap — `PricingRule`, `Promotion`, `GiftCard`,
+`Referral`, and `Product` have no schema at all yet (§17's MVP boundary
+explicitly defers them to Phases 11–12), and `ProviderEarning`/`Payout`
+have a schema but no route touching them anywhere in this codebase (the
+same gap §28 flagged, still open). Building real tables against data
+that doesn't exist would mean fabricating it — refused per this
+project's standing rule against fake data. `AuditEvent` is the same
+story as `OrderStatusEvent`: schema'd since Phase 1, written by no route
+yet. Customer and Service Areas *could* be built against data that
+already exists (`CustomerRepository`, `ProviderServiceArea`) but weren't,
+to keep this phase's scope to what the phase table actually named;
+noted here as the most defensible next additions to this console rather
+than left unspoken.
+
+Also fixed a real bug caught by `eslint-plugin-react-hooks`'s
+`set-state-in-effect` rule during this phase — three list pages called
+`setState` synchronously as the first statement inside a `useEffect`
+body (resetting to a loading state before the async fetch). Not a
+correctness bug exactly, but exactly the pattern React's own docs warn
+against; fixed by moving the reset inside a locally-scoped async
+function invoked from the effect, everywhere the rule flagged it.
+
+**Verified — 136/136 tests passing** (88 in `apps/api`, 48 in
+`packages/domain`; `apps/admin` has no automated test suite of its own,
+same as `apps/app` — both are verified by typecheck + build + (for
+`apps/app`) static export, never by automated UI tests, a standing gap
+this codebase has carried since Phase 1), full-repo typecheck clean,
+`apps/admin`'s ESLint clean, all three apps build.

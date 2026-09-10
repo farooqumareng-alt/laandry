@@ -54,4 +54,8 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
   async getReviewForOrder(orderId: string): Promise<ReviewRecord | null> {
     return this.reviewsByOrderId.get(orderId) ?? null;
   }
+
+  async listAllReviews(): Promise<ReviewRecord[]> {
+    return [...this.reviewsByOrderId.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
 }

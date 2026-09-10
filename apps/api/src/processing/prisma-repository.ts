@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import type { IncidentType, ProcessingStage } from "@laandry/domain";
+import type { IncidentStatus, IncidentType, ProcessingStage } from "@laandry/domain";
 
 import type { IncidentRecord, ProcessingConfirmationRecord, ProcessingRepository } from "./repository";
 
@@ -38,6 +38,13 @@ export class PrismaProcessingRepository implements ProcessingRepository {
 
   async listIncidentsForOrder(orderId: string): Promise<IncidentRecord[]> {
     return this.prisma.incident.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+  }
+
+  async listAllIncidents(filter?: { status?: IncidentStatus }): Promise<IncidentRecord[]> {
+    return this.prisma.incident.findMany({
+      where: filter?.status ? { status: filter.status } : undefined,
+      orderBy: { createdAt: "desc" },
+    });
   }
 
   async getIncidentById(id: string): Promise<IncidentRecord | null> {

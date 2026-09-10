@@ -266,4 +266,14 @@ export function deliveryRoutes(app: FastifyInstance, deps: DeliveryRoutesDeps) {
     const review = await deliveryRepository.getReviewForOrder(order.id);
     return reply.send({ review });
   });
+
+  // Admin console (Phase 10) — every review across every order, same
+  // "any"-scoped order/read grant every other admin list route reuses.
+  app.get("/admin/reviews", { preHandler: [auth] }, async (request, reply) => {
+    if (!hasPermission(request.authUser!.role, "order", "read")) {
+      return reply.code(403).send({ error: "FORBIDDEN" });
+    }
+    const reviews = await deliveryRepository.listAllReviews();
+    return reply.send({ reviews });
+  });
 }

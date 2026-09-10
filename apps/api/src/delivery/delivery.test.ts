@@ -393,3 +393,33 @@ test("delivery, tip, and review routes require authentication", async () => {
   const review = await app.inject({ method: "POST", url: `/orders/${id}/review`, payload: {} });
   assert.equal(review.statusCode, 401);
 });
+
+test("GET /admin/reviews lists every review across every order for staff, and is off-limits to a customer", async () => {
+  const repos = buildTestApp();
+  const { app } = repos;
+  const provider = await setupActiveProvider(app, repos, "adminreview@example.com", "FORMAL_SPECIAL_CARE");
+  const customer = await registerCustomerWithAddress(app, "adminreviewcust@example.com");
+  const orderId = await bookToReadyForReturn(app, customer.auth, provider.auth, customer.addressId, {
+    service: "FORMAL_SPECIAL_CARE",
+    items: [{ description: "Shirt", quantity: 1 }],
+  });
+  await app.inject({ method: "POST", url: `/provider/orders/${orderId}/start-delivery`, headers: provider.auth });
+  await app.inject({ method: "POST", url: `/provider/orders/${orderId}/complete-delivery`, headers: provider.auth, payload: { method: "qr" } });
+  await app.inject({
+    method: "POST",
+    url: `/orders/${orderId}/review`,
+    headers: customer.auth,
+    payload: { rating: 4, comment: "Global admin list test." },
+  });
+
+  await seedUser(repos.repository, { email: "finance1@example.com", password: "correct horse battery staple", role: "finance" }, repos.customerRepository);
+  const financeLogin = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "finance1@example.com", password: "correct horse battery staple" } });
+  const financeAuth = { authorization: `Bearer ${financeLogin.json().accessToken}` };
+
+  const list = await app.inject({ method: "GET", url: "/admin/reviews", headers: financeAuth });
+  assert.equal(list.statusCode, 200);
+  assert.ok(list.json().reviews.some((r: { orderId: string; rating: number }) => r.orderId === orderId && r.rating === 4));
+
+  const asCustomer = await app.inject({ method: "GET", url: "/admin/reviews", headers: customer.auth });
+  assert.equal(asCustomer.statusCode, 403);
+});

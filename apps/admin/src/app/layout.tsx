@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { IBM_Plex_Mono, Public_Sans } from 'next/font/google';
 
-import { Sidebar } from '@/components/sidebar';
-import styles from '@/components/sidebar.module.css';
+import { AuthBootstrap } from '@/components/auth-bootstrap';
 import './globals.css';
 
 const publicSans = Public_Sans({
@@ -27,10 +26,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${publicSans.variable} ${ibmPlexMono.variable}`}>
       <body>
-        <div className={styles.shell}>
-          <Sidebar />
-          <main className={styles.main}>{children}</main>
-        </div>
+        <AuthBootstrap />
+        {children}
       </body>
     </html>
   );

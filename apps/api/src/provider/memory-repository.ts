@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ServiceType } from "@laandry/domain";
 
 import type {
+  AdminProviderSummary,
   ProviderAvailabilityRecord,
   ProviderCapabilityRecord,
   ProviderProfileRecord,
@@ -35,6 +36,15 @@ export class InMemoryProviderRepository implements ProviderRepository {
     const updated = { ...profile, status };
     this.profilesById.set(profileId, updated);
     return updated;
+  }
+
+  async listAllProviders(filter?: { status?: ProviderProfileRecord["status"] }): Promise<AdminProviderSummary[]> {
+    return [...this.profilesById.values()]
+      .filter((p) => !filter?.status || p.status === filter.status)
+      .map((p) => ({
+        ...p,
+        services: [...this.capabilitiesById.values()].filter((c) => c.providerId === p.id).map((c) => c.service),
+      }));
   }
 
   async addCapability(providerId: string, service: ProviderCapabilityRecord["service"]): Promise<ProviderCapabilityRecord> {

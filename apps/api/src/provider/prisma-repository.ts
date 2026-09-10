@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { ProviderStatus, ServiceType } from "@laandry/domain";
 
 import type {
+  AdminProviderSummary,
   ProviderAvailabilityRecord,
   ProviderCapabilityRecord,
   ProviderProfileRecord,
@@ -30,6 +31,19 @@ export class PrismaProviderRepository implements ProviderRepository {
   async updateStatus(profileId: string, status: ProviderStatus): Promise<ProviderProfileRecord> {
     const profile = await this.prisma.providerProfile.update({ where: { id: profileId }, data: { status } });
     return { id: profile.id, userId: profile.userId, status: profile.status as ProviderStatus };
+  }
+
+  async listAllProviders(filter?: { status?: ProviderStatus }): Promise<AdminProviderSummary[]> {
+    const profiles = await this.prisma.providerProfile.findMany({
+      where: filter?.status ? { status: filter.status } : undefined,
+      include: { capabilities: true },
+    });
+    return profiles.map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      status: p.status as ProviderStatus,
+      services: p.capabilities.map((c) => c.service as ServiceType),
+    }));
   }
 
   async addCapability(providerId: string, service: ServiceType): Promise<ProviderCapabilityRecord> {

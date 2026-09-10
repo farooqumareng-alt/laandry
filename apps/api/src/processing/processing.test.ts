@@ -348,3 +348,43 @@ test("processing and incident routes require a provider account, authenticated",
   });
   assert.equal(res.statusCode, 401);
 });
+
+test("GET /admin/incidents lists every incident across every order for staff, filterable by status, and is off-limits to a provider", async () => {
+  const repos = buildTestApp();
+  const { app } = repos;
+  const provider = await setupActiveProvider(app, repos, "adminincident@example.com", "FORMAL_SPECIAL_CARE");
+  const customer = await registerCustomerWithAddress(app, "adminincidentcust@example.com");
+  const orderId = await bookToBeingCaredFor(app, customer.auth, provider.auth, customer.addressId, {
+    service: "FORMAL_SPECIAL_CARE",
+    items: [{ description: "Shirt", quantity: 1 }],
+  });
+  const reported = await app.inject({
+    method: "POST",
+    url: `/provider/orders/${orderId}/incidents`,
+    headers: provider.auth,
+    payload: { type: "DAMAGED_ITEM", description: "Global admin list test." },
+  });
+  const incidentId = reported.json().incident.id as string;
+
+  await seedUser(repos.repository, { email: "dispatch2@example.com", password: "correct horse battery staple", role: "dispatch" }, repos.customerRepository);
+  const dispatchLogin = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "dispatch2@example.com", password: "correct horse battery staple" } });
+  const dispatchAuth = { authorization: `Bearer ${dispatchLogin.json().accessToken}` };
+
+  const open = await app.inject({ method: "GET", url: "/admin/incidents?status=OPEN", headers: dispatchAuth });
+  assert.equal(open.statusCode, 200);
+  assert.ok(open.json().incidents.some((i: { id: string }) => i.id === incidentId));
+
+  await app.inject({
+    method: "POST",
+    url: `/orders/${orderId}/incidents/${incidentId}/resolve`,
+    headers: dispatchAuth,
+    payload: { resolutionNote: "Resolved for the admin list test." },
+  });
+  const stillOpen = await app.inject({ method: "GET", url: "/admin/incidents?status=OPEN", headers: dispatchAuth });
+  assert.equal(stillOpen.json().incidents.some((i: { id: string }) => i.id === incidentId), false);
+  const resolved = await app.inject({ method: "GET", url: "/admin/incidents?status=RESOLVED", headers: dispatchAuth });
+  assert.ok(resolved.json().incidents.some((i: { id: string }) => i.id === incidentId));
+
+  const asProviderReq = await app.inject({ method: "GET", url: "/admin/incidents", headers: provider.auth });
+  assert.equal(asProviderReq.statusCode, 403);
+});

@@ -38,6 +38,8 @@ export interface ProcessingRepository {
     description: string;
   }): Promise<IncidentRecord>;
   listIncidentsForOrder(orderId: string): Promise<IncidentRecord[]>;
+  /** Admin/ops-only — every incident across every order, optionally narrowed to one status. Newest first. */
+  listAllIncidents(filter?: { status?: IncidentStatus }): Promise<IncidentRecord[]>;
   getIncidentById(id: string): Promise<IncidentRecord | null>;
   /** A dumb setter, same discipline as every other repository's status setters — the route handler decides whether resolving is legal before calling this. */
   resolveIncident(id: string, input: { resolvedByUserId: string; resolutionNote: string }): Promise<IncidentRecord>;

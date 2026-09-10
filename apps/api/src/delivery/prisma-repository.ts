@@ -28,4 +28,8 @@ export class PrismaDeliveryRepository implements DeliveryRepository {
   async getReviewForOrder(orderId: string): Promise<ReviewRecord | null> {
     return this.prisma.review.findUnique({ where: { orderId } });
   }
+
+  async listAllReviews(): Promise<ReviewRecord[]> {
+    return this.prisma.review.findMany({ orderBy: { createdAt: "desc" } });
+  }
 }

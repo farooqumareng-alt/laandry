@@ -115,6 +115,11 @@ export interface ProviderProfileResponse {
   status: ProviderStatus;
 }
 
+/** GET /admin/providers only — the same profile plus its capability list, joined server-side so an admin table doesn't need one request per row. */
+export interface AdminProviderSummary extends ProviderProfileResponse {
+  services: ServiceType[];
+}
+
 export interface ProviderCapability {
   id: string;
   providerId: string;
@@ -367,6 +372,17 @@ export function createLaandryClient(options: LaandryClientOptions) {
     submitReview: (orderId: string, input: { rating: number; comment?: string }) =>
       post<{ review: Review }>(`/orders/${orderId}/review`, input),
     getReview: (orderId: string) => request<{ review: Review | null }>(`/orders/${orderId}/review`),
+
+    // --- admin console (Phase 10) — staff-only; each 403s for a customer or provider token ---
+    adminListOrders: (status?: OrderStatus) =>
+      request<{ orders: Order[] }>(`/admin/orders${status ? `?status=${status}` : ""}`),
+    adminListProviders: (status?: ProviderStatus) =>
+      request<{ providers: AdminProviderSummary[] }>(`/admin/providers${status ? `?status=${status}` : ""}`),
+    adminApproveProvider: (providerId: string) =>
+      post<{ profile: ProviderProfileResponse }>(`/admin/providers/${providerId}/approve`),
+    adminListIncidents: (status?: IncidentStatus) =>
+      request<{ incidents: Incident[] }>(`/admin/incidents${status ? `?status=${status}` : ""}`),
+    adminListReviews: () => request<{ reviews: Review[] }>("/admin/reviews"),
   };
 }
 

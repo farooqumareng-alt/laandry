@@ -28,11 +28,17 @@ export interface ProviderAvailabilityRecord {
   endsAt: Date;
 }
 
+export interface AdminProviderSummary extends ProviderProfileRecord {
+  services: ServiceType[];
+}
+
 export interface ProviderRepository {
   createProfile(userId: string): Promise<ProviderProfileRecord>;
   getProfileByUserId(userId: string): Promise<ProviderProfileRecord | null>;
   getProfileById(id: string): Promise<ProviderProfileRecord | null>;
   updateStatus(profileId: string, status: ProviderStatus): Promise<ProviderProfileRecord>;
+  /** Admin/ops-only — every provider profile with its capabilities, optionally narrowed to one status. */
+  listAllProviders(filter?: { status?: ProviderStatus }): Promise<AdminProviderSummary[]>;
 
   addCapability(providerId: string, service: ServiceType): Promise<ProviderCapabilityRecord>;
   listCapabilities(providerId: string): Promise<ProviderCapabilityRecord[]>;

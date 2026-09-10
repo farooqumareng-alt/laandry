@@ -6,6 +6,7 @@ import {
   requiredProcessingStages,
   stagesSatisfyRequirement,
   PROCESSING_STAGES,
+  INCIDENT_STATUSES,
   INCIDENT_TYPES,
   type OrderStatus,
 } from "@laandry/domain";
@@ -37,6 +38,7 @@ const resolveIncidentSchema = z.object({
 
 const idParamSchema = z.object({ id: z.string().uuid() });
 const incidentParamSchema = z.object({ id: z.string().uuid(), incidentId: z.string().uuid() });
+const adminListIncidentsQuerySchema = z.object({ status: z.enum(INCIDENT_STATUSES).optional() });
 
 export interface ProcessingRoutesDeps {
   processingRepository: ProcessingRepository;
@@ -185,6 +187,19 @@ export function processingRoutes(app: FastifyInstance, deps: ProcessingRoutesDep
     if (!authorized) return reply.code(404).send({ error: "ORDER_NOT_FOUND" });
 
     const incidents = await processingRepository.listIncidentsForOrder(order.id);
+    return reply.send({ incidents });
+  });
+
+  // Admin console (Phase 10) — every incident across every order, same
+  // "any"-scoped order/read grant every other admin list route reuses.
+  app.get("/admin/incidents", { preHandler: [auth] }, async (request, reply) => {
+    if (!hasPermission(request.authUser!.role, "order", "read")) {
+      return reply.code(403).send({ error: "FORBIDDEN" });
+    }
+    const query = adminListIncidentsQuerySchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: "INVALID_INPUT" });
+
+    const incidents = await processingRepository.listAllIncidents({ status: query.data.status });
     return reply.send({ incidents });
   });
 
