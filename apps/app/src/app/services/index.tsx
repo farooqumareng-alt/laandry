@@ -7,6 +7,7 @@ import { useTheme } from '@/hooks/use-theme';
 const SERVICES: { slug: string; label: string }[] = [
   { slug: 'everyday-laundry', label: 'Everyday Laundry' },
   { slug: 'garment-care', label: 'Formal & Special Garments' },
+  { slug: 'household', label: 'Bedding & Household' },
   { slug: 'travel', label: 'Laandry for Travelers' },
 ];
 

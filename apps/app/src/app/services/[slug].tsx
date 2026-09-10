@@ -5,6 +5,7 @@ import { Screen } from '@/components/screen';
 const TITLES: Record<string, string> = {
   'everyday-laundry': 'Everyday Laundry',
   'garment-care': 'Formal & Special Garments',
+  household: 'Bedding & Household',
   travel: 'Laandry for Travelers',
 };
 
