@@ -1356,3 +1356,13 @@ placeholder) is a real read-only list.
 **Verified — 177/177 tests passing** (114 in `apps/api`: +6 this
 phase; 63 in `packages/domain`: +6 for `referrals.ts`), full-repo
 typecheck clean, `apps/admin`'s ESLint clean, all three apps build.
+Redeployed live and walked the whole loop against the real Supabase
+database and real HTTP requests: registered a referrer, pulled their
+real code, registered a referee with it → delivered the referee's
+first order → **both accounts landed on exactly $10.00 credit** →
+confirmed the zero-credit path is a genuine no-op (no phantom line
+item when the balance is $0) → a second order for the same referee
+with `useAccountCredit: true` on a $25.00 (minimum-order-adjusted)
+total → **charged exactly $15.00, and the balance landed on exactly
+$0** — the same `applyAccountCreditToQuote` math worked out by hand
+ahead of time, before ever seeing the response.
