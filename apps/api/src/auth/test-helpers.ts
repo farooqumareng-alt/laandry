@@ -19,6 +19,7 @@ export function testEnv(overrides: Partial<Env> = {}): Env {
     JWT_SECRET: "test-only-secret-32-characters-minimum-xxxxxxxx",
     ACCESS_TOKEN_TTL_MIN: 15,
     REFRESH_TOKEN_TTL_DAYS: 30,
+    CORS_ORIGINS: ["http://localhost:8081"],
     ...overrides,
   };
 }

@@ -24,6 +24,15 @@ const loginSchema = z.object({
 const refreshSchema = z.object({ refreshToken: z.string().min(1) });
 const mfaVerifySchema = z.object({ code: z.string().length(6) });
 
+/**
+ * Well below the global 300/min floor (see app.ts) — these are exactly
+ * the endpoints a credential-stuffing, account-enumeration, or TOTP
+ * brute-force attempt would hit. A 6-digit MFA code is only 1,000,000
+ * possibilities; without a tight per-route cap here, rate limiting alone
+ * wouldn't meaningfully slow that down.
+ */
+const AUTH_RATE_LIMIT = { max: 10, timeWindow: "1 minute" };
+
 export interface AuthRoutesDeps {
   repository: AuthRepository;
   env: Env;
@@ -39,7 +48,7 @@ export function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps) {
   // support, dispatch, finance, ops_manager, admin and super_admin accounts
   // are provisioned out-of-band (provider application review in Phase 5;
   // staff accounts created by an existing admin) — never via this endpoint.
-  app.post("/auth/register", async (request, reply) => {
+  app.post("/auth/register", { config: { rateLimit: AUTH_RATE_LIMIT } }, async (request, reply) => {
     const body = registerSchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: "INVALID_INPUT", details: body.error.flatten() });
@@ -61,7 +70,7 @@ export function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps) {
     }
   });
 
-  app.post("/auth/login", async (request, reply) => {
+  app.post("/auth/login", { config: { rateLimit: AUTH_RATE_LIMIT } }, async (request, reply) => {
     const body = loginSchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: "INVALID_INPUT", details: body.error.flatten() });
@@ -98,7 +107,7 @@ export function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps) {
     });
   });
 
-  app.post("/auth/refresh", async (request, reply) => {
+  app.post("/auth/refresh", { config: { rateLimit: AUTH_RATE_LIMIT } }, async (request, reply) => {
     const body = refreshSchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: "INVALID_INPUT" });
@@ -148,21 +157,25 @@ export function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps) {
     return reply.send({ secret, otpauthUri: buildOtpauthUri({ secret, email: user.email }) });
   });
 
-  app.post("/auth/mfa/verify", { preHandler: auth }, async (request, reply) => {
-    const body = mfaVerifySchema.safeParse(request.body);
-    if (!body.success) {
-      return reply.code(400).send({ error: "INVALID_INPUT" });
-    }
-    const user = await repository.findUserById(request.authUser!.id);
-    if (!user?.mfaSecret) {
-      return reply.code(400).send({ error: "MFA_NOT_ENROLLED" });
-    }
-    if (!verifyTotp(user.mfaSecret, body.data.code)) {
-      return reply.code(401).send({ error: "INVALID_MFA_CODE" });
-    }
-    await repository.enableMfa(user.id);
-    return reply.send({ mfaEnabled: true });
-  });
+  app.post(
+    "/auth/mfa/verify",
+    { preHandler: auth, config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const body = mfaVerifySchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.code(400).send({ error: "INVALID_INPUT" });
+      }
+      const user = await repository.findUserById(request.authUser!.id);
+      if (!user?.mfaSecret) {
+        return reply.code(400).send({ error: "MFA_NOT_ENROLLED" });
+      }
+      if (!verifyTotp(user.mfaSecret, body.data.code)) {
+        return reply.code(401).send({ error: "INVALID_MFA_CODE" });
+      }
+      await repository.enableMfa(user.id);
+      return reply.send({ mfaEnabled: true });
+    },
+  );
 
   // Representative role-gated route proving requireAuth + requireRole end
   // to end; resource-scoped ("own") routes arrive with their resources in

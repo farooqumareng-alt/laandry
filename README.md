@@ -104,9 +104,10 @@ Phases 0–6 done: repo scaffold/routing/design tokens/DB schema,
 auth/roles/authorization test harness, customer onboarding (addresses +
 preferences), booking/pricing/payment authorization, provider onboarding
 (application → capabilities/service areas → review → approval →
-availability → active), and matching/offers/atomic acceptance — front to
-back, 93 tests, `npm run test`. See
+availability → active), matching/offers/atomic acceptance, and a security
+hardening pass (helmet, CORS allowlist, rate limiting, log redaction, a
+non-leaking error handler) — front to back, 97 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, and §19–§23 for what Phases 2–6
-shipped — §23 in particular walks through a real concurrency bug the
-Phase 6 gate test caught and how it was fixed.
+for what's next and what gates it, §19–§23 for what Phases 2–6 shipped
+(§23 walks through a real concurrency bug the Phase 6 gate test caught and
+how it was fixed), and §24 for the security pass.

@@ -53,7 +53,10 @@ export function providerRoutes(app: FastifyInstance, deps: ProviderRoutesDeps) {
   const auth = requireAuth(env.JWT_SECRET);
   const asProvider = [auth, requireRole("provider")];
 
-  app.post("/provider/apply", async (request, reply) => {
+  // Same rationale as /auth/register — well below the global rate-limit
+  // floor (see app.ts), applied to the one unauthenticated,
+  // account-creating endpoint this module exposes.
+  app.post("/provider/apply", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
     const body = applySchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: "INVALID_INPUT", details: body.error.flatten() });

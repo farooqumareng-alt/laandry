@@ -1,4 +1,7 @@
-import Fastify from "fastify";
+import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
+import Fastify, { type FastifyError } from "fastify";
 
 import { authRoutes } from "./auth/routes";
 import { PrismaAuthRepository } from "./auth/prisma-repository";
@@ -42,7 +45,58 @@ export interface BuildAppOptions {
  */
 export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const app = Fastify({
-    logger: env.NODE_ENV !== "test",
+    logger:
+      env.NODE_ENV === "test"
+        ? false
+        : {
+            // The default request/response serializers log req.headers —
+            // which includes the Authorization bearer token and any
+            // cookies — straight into whatever log sink is configured.
+            // Never let that happen, in dev or prod.
+            redact: {
+              paths: ["req.headers.authorization", "req.headers.cookie", 'res.headers["set-cookie"]'],
+              censor: "[redacted]",
+            },
+          },
+    // Behind a reverse proxy (Vercel, Fly, etc.) in production, the
+    // real client IP is in X-Forwarded-For — rate limiting by IP is
+    // meaningless without this.
+    trustProxy: env.NODE_ENV === "production",
+    bodyLimit: 1_048_576, // 1MB — no file uploads exist yet; revisit when they do.
+  });
+
+  // Security headers. CSP is opinionated for an API with no HTML
+  // responses of its own — deliberately locked down rather than left at
+  // helmet's browser-page-oriented defaults.
+  app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+    },
+  });
+
+  // No wildcard: only the configured web/admin origins may call this API
+  // from a browser. See env.ts CORS_ORIGINS.
+  app.register(cors, {
+    origin: env.CORS_ORIGINS,
+    credentials: false, // auth is Bearer-token, never cookies — no reason to allow credentialed cross-origin requests
+  });
+
+  // Global floor against generic abuse; auth.ts/provider.ts routes.ts
+  // apply a much stricter per-route override on the specific endpoints a
+  // credential-stuffing or account-enumeration attempt would actually hit.
+  app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute" });
+
+  // Don't let an unexpected error leak a stack trace or internal message
+  // to the client — log it in full server-side, return a generic 500.
+  // Errors that already set a statusCode (our own reply.code(...).send(...)
+  // calls, and validation-shaped errors) pass through unchanged.
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    const statusCode = error.statusCode ?? 500;
+    if (statusCode >= 500) {
+      request.log.error({ err: error }, "unhandled error");
+      return reply.code(500).send({ error: "INTERNAL_SERVER_ERROR" });
+    }
+    return reply.code(statusCode).send({ error: error.message });
   });
 
   const authRepository = options.authRepository ?? new PrismaAuthRepository(getPrisma());

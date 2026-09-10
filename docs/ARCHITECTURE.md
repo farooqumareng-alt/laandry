@@ -2,9 +2,9 @@
 
 Status: Phases 0–6 done (repo scaffold, routing, auth/roles, customer
 onboarding, booking/pricing/payment, provider onboarding, and
-matching/offers/atomic acceptance — see §19–§23). Per the development
-process this repo follows, no feature work begins until each phase's gate
-passes.
+matching/offers/atomic acceptance — see §19–§23), plus a Phase-13 security
+slice pulled forward (§24). Per the development process this repo
+follows, no feature work begins until each phase's gate passes.
 
 ## 0. Repository audit
 
@@ -620,3 +620,41 @@ against a live database. Running this phase's test suite against
 `DATABASE_URL` pointed at a real Postgres, ideally with an artificially
 delayed/interleaved variant of the concurrency test, is the concrete way
 to close that gap.
+
+## 24. Security hardening, pulled forward from Phase 13
+
+The user asked directly for a security pass ahead of a live deployment, so
+this pulls a slice of Phase 13 forward rather than waiting. `apps/api`
+(`app.ts`) now has:
+
+- **`@fastify/helmet`** with an API-appropriate CSP (`default-src 'none'`,
+  `frame-ancestors 'none'`) — this service serves no HTML of its own, so
+  helmet's browser-page-oriented defaults were tightened rather than kept.
+- **`@fastify/cors`** against an explicit `CORS_ORIGINS` allowlist (new
+  env var) — no wildcard. `credentials: false`, since auth is Bearer-token
+  in a header, never a cookie.
+- **`@fastify/rate-limit`**: a global 300/min-per-IP floor, plus a much
+  tighter 10/min override on every unauthenticated account-touching
+  endpoint (`/auth/register`, `/auth/login`, `/auth/refresh`,
+  `/provider/apply`) and 5/min on `/auth/mfa/verify` specifically — a
+  6-digit TOTP code is only 1,000,000 possibilities, so that one route
+  needed its own number.
+- **Log redaction**: Fastify's default request logging serializes
+  `req.headers`, which includes the `Authorization` bearer token and any
+  cookies — now explicitly redacted before anything reaches a log sink.
+- **A global error handler** that logs the real error (with stack) server
+  side and returns a generic `INTERNAL_SERVER_ERROR` for any 5xx — no
+  internal message or stack trace reaches the client. Verified with a test
+  that forces a real thrown error and asserts the response body never
+  contains it.
+
+Four new tests in `apps/api/src/security.test.ts` check headers, CORS
+allow/deny, the rate-limit cutoff, and the error-leak boundary — 97/97
+tests pass repo-wide after this change (57 API, 40 domain).
+
+**What this is not:** a full Phase 13 pass. Still outstanding for that
+phase specifically: dependency/vulnerability scanning as a CI gate,
+accessibility audit, load/performance testing, and the full E2E suite
+against staging. This section covers request-layer hardening on the API
+only — see the rest of this document (and the live-deployment
+conversation) for what's still open on the client and infra side.
