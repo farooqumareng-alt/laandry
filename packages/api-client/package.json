@@ -12,6 +12,7 @@
     "@laandry/domain": "*"
   },
   "devDependencies": {
+    "@types/node": "^22.7.4",
     "typescript": "^5.6.3"
   }
 }
