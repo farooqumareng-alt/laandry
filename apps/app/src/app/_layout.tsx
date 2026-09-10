@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Stack, ThemeProvider, type Theme } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import { Image, useColorScheme } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { restoreSession } from '@/lib/auth-store';
@@ -45,7 +45,24 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: Colors[scheme].paper },
         }}
       >
-        <Stack.Screen name="index" options={{ title: 'Laandry' }} />
+        <Stack.Screen
+          name="index"
+          options={{
+            title: 'Laandry',
+            // The one screen that gets the real wordmark in place of a
+            // text title — every other screen keeps a descriptive title
+            // since that's the only wayfinding cue on a native header.
+            headerTitle: () => (
+              <Image
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                source={require('../../assets/images/wordmark.png')}
+                style={{ width: 116, height: 34 }}
+                resizeMode="contain"
+                accessibilityLabel="Laandry"
+              />
+            ),
+          }}
+        />
         <Stack.Screen name="login" options={{ title: 'Sign In' }} />
         <Stack.Screen name="register" options={{ title: 'Create Account' }} />
         <Stack.Screen name="how-it-works" options={{ title: 'How It Works' }} />

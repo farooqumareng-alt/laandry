@@ -12,7 +12,6 @@ export default function HomeScreen() {
 
   return (
     <Screen
-      logo
       kicker="Public · laandry.com"
       title="Get your time back."
       description="Laundry picked up from your door and returned clean, fresh, and exactly the way you like it. Wash. Dry. Fold. Hang. Press. You choose what you need — we take care of the rest."
