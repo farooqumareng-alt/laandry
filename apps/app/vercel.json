@@ -2,8 +2,8 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/orders/:id", "destination": "/orders/[id].html" },
-    { "source": "/provider/orders/:id", "destination": "/provider/orders/[id].html" },
-    { "source": "/services/:slug", "destination": "/services/[slug].html" }
+    { "source": "/orders/:id", "destination": "/orders/%5Bid%5D.html" },
+    { "source": "/provider/orders/:id", "destination": "/provider/orders/%5Bid%5D.html" },
+    { "source": "/services/:slug", "destination": "/services/%5Bslug%5D.html" }
   ]
 }
