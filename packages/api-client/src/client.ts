@@ -248,7 +248,15 @@ export function createLaandryClient(options: LaandryClientOptions) {
     const res = await fetch(`${options.baseUrl}${path}`, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+        // Only set when there's actually a body — Fastify's JSON body
+        // parser rejects an empty body when this header is present at
+        // all ("Body cannot be empty when content-type is set to
+        // 'application/json'"), which broke every no-payload POST call
+        // (mfaEnroll, activateProvider, startDelivery, ...) over real
+        // HTTP. Masked until Phase 10's live check because Fastify's
+        // in-process test harness (app.inject()) doesn't enforce this
+        // the same way a real fetch request does.
+        ...(init?.body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init?.headers,
       },
