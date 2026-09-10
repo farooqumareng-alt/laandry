@@ -2,9 +2,10 @@
 
 Status: Phases 0–6 done (repo scaffold, routing, auth/roles, customer
 onboarding, booking/pricing/payment, provider onboarding, and
-matching/offers/atomic acceptance — see §19–§23), plus a Phase-13 security
-slice pulled forward (§24). Per the development process this repo
-follows, no feature work begins until each phase's gate passes.
+matching/offers/atomic acceptance — see §19–§23), a Phase-13 security
+slice pulled forward (§24), and a live deployment on real infrastructure
+(§25). Per the development process this repo follows, no feature work
+begins until each phase's gate passes.
 
 ## 0. Repository audit
 
@@ -658,3 +659,75 @@ accessibility audit, load/performance testing, and the full E2E suite
 against staging. This section covers request-layer hardening on the API
 only — see the rest of this document (and the live-deployment
 conversation) for what's still open on the client and infra side.
+
+## 25. Live deployment
+
+All three pieces are deployed to Vercel, backed by a real Supabase
+Postgres — the first genuinely live environment for this project.
+
+| Piece | URL | What it is |
+|---|---|---|
+| API | `api-dusky-nine-29.vercel.app` | Fastify wrapped as a Vercel Node function |
+| Customer/provider app | `app-alpha-three-80.vercel.app` | Expo static web export |
+| Admin console | `admin-five-tau-14.vercel.app` | Next.js, as built in Phase 1 |
+
+The first real migration (`20260910011212_init`) is applied against the
+live database, and the entire register → address → book → dispatch →
+accept → exact-address-reveal chain was smoke-tested end to end against
+it via curl — closing the "NOT VERIFIED against a live database" caveat
+carried since Phase 2. A cross-origin browser-style request (preflight
+`OPTIONS` + the real `POST`, `Origin` header set to the deployed app) was
+also verified against the deployed API to confirm CORS actually works
+between the two live deployments, not just in theory.
+
+**Three real bugs surfaced by deploying that local dev had been silently
+masking**, each fixed properly rather than patched around:
+
+1. **Missing `prisma generate` on install.** The build has always
+   depended on a manual `npx prisma generate` step that local dev
+   happened to always have run. A fresh `npm install` never triggered it,
+   so `@prisma/client` shipped with no generated model types and the
+   build failed. Fixed with `"postinstall": "prisma generate"` in
+   `apps/api/package.json` — verified by wiping the generated client
+   locally and re-running `npm install` clean.
+2. **`packages/api-client` never declared `@types/node`.** It uses
+   `fetch`/`RequestInit` but only ever typechecked because npm workspaces
+   hoists `apps/api`'s `@types/node` to the shared root `node_modules`,
+   and TypeScript auto-includes any `@types/*` package it finds up the
+   tree. Deploying the admin console in isolation (without `apps/api` in
+   the dependency graph) surfaced it. Fixed by declaring the dependency
+   explicitly where it's actually used.
+3. **Static export routing.** `expo export --platform web` writes flat
+   files (`book.html`) and, for dynamic routes, literal bracket filenames
+   (`orders/[id].html`). Vercel's static file server needs `cleanUrls` for
+   the former and explicit rewrites (with the brackets percent-encoded in
+   the destination — a literal `[id]` in a rewrite destination doesn't
+   resolve to the file of that name) for the latter. Fixed in
+   `apps/app/vercel.json`.
+
+**Deliberately not done, and why:**
+
+- **No real payment processor.** `FakePaymentProvider` is what's live —
+  same as every environment so far. A `StripePaymentProvider` needs real
+  credentials this project doesn't have yet.
+- **Admin console has no login screen** (Phase 10 isn't built) and is
+  reachable by anyone with the URL. It shows no real data yet — Phase 10
+  wiring doesn't exist — so today's actual exposure is low, but this is
+  not a "solved" state. Vercel's CLI-driven password protection
+  (`vercel project protection enable --password`) reported success but
+  did **not** actually gate the production URL when verified — that's
+  reported here as a known gap, not silently assumed to have worked.
+  Enabling it from the Vercel dashboard directly (Project → Settings →
+  Deployment Protection), or simply building real admin auth in Phase 10,
+  both close this properly.
+- **Native iOS/Android are not live anywhere.** "Live" here means the web
+  export. Shipping to the App Store/Play Store needs developer accounts,
+  signing, and an EAS build pipeline — a materially different, much
+  larger effort than a web deploy, not attempted.
+- **Vercel's GitHub integration auto-imported a broken project** (named
+  `laandry`, root directory guessed as the nonexistent `apps/web`) the
+  moment the repo went public — removed and replaced with three
+  correctly-configured projects (`laandry-api`, `laandry-app`,
+  `laandry-admin`), each with root directory pinned explicitly. Worth
+  knowing if a future push triggers another auto-import: check
+  `vercel project ls` for a project misconfigured the same way.
