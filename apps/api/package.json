@@ -1,0 +1,33 @@
+{
+  "name": "@laandry/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx src/dev/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx src/dev/seed.ts"
+  },
+  "dependencies": {
+    "@laandry/domain": "*",
+    "@prisma/client": "^5.20.0",
+    "fastify": "^5.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "otpauth": "^9.3.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.7.4",
+    "prisma": "^5.20.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,416 @@
+// Laandry API schema — mirrors docs/ARCHITECTURE.md §8.
+//
+// MVP-scope entities only (per §17): promotions, referrals, gift cards and
+// store/product commerce are deferred to phases 11–12 and intentionally not
+// modeled yet, to keep this migration matched to what apps/api actually
+// implements right now.
+//
+// Enum values must stay in sync with packages/domain/src/order.ts and
+// offer.ts — those TS unions are the source of truth for transition
+// legality; these enums just need to name the same states.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  PROVIDER
+  SUPPORT
+  DISPATCH
+  FINANCE
+  OPS_MANAGER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OrderStatus {
+  SCHEDULED
+  PROVIDER_ASSIGNED
+  PICKED_UP
+  BEING_CARED_FOR
+  FINISHING
+  READY_FOR_RETURN
+  ON_THE_WAY
+  DELIVERED
+  CANCELLED
+  DISPUTED
+  DELIVERY_FAILED
+}
+
+enum OfferStatus {
+  ELIGIBLE
+  WAVE_1_OFFERED
+  WAVE_2_OFFERED
+  ACCEPTED
+  UNFULFILLED
+}
+
+enum ServiceType {
+  EVERYDAY_LAUNDRY
+  FORMAL_SPECIAL_CARE
+  BEDDING_HOUSEHOLD
+  TRAVEL
+}
+
+enum ProviderStatus {
+  APPLICATION_STARTED
+  IDENTITY_PENDING
+  REVIEW_PENDING
+  TRAINING_PENDING
+  APPROVED
+  ACTIVE
+  PAUSED
+  SUSPENDED
+  DEACTIVATED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  phone        String?
+  role         Role
+  passwordHash String
+  mfaSecret    String? // TOTP secret, only ever read/written server-side
+  mfaEnabled   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  customerProfile CustomerProfile?
+  providerProfile ProviderProfile?
+  sessions        Session[]
+
+  @@map("users")
+}
+
+/// One row per refresh token — see docs/ARCHITECTURE.md §15 (session/device
+/// revocation). Only the SHA-256 hash of the refresh token is stored; the
+/// raw token is returned to the client exactly once, at issuance.
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  refreshTokenHash String    @unique
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  @@map("sessions")
+}
+
+model CustomerProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  preferences         Json? // cold/warm wash, fragrance-free, softener, fold/hang, etc. — snapshotted per order at booking time
+  preferredProviderId String?
+
+  addresses         Address[]
+  orders            Order[]
+  favoriteProviders FavoriteProvider[]
+
+  @@map("customer_profiles")
+}
+
+model ProviderProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  status ProviderStatus @default(APPLICATION_STARTED)
+
+  capabilities  ProviderCapability[]
+  availability  ProviderAvailability[]
+  serviceAreas  ProviderServiceArea[]
+  assignments   ProviderAssignment[]
+  earnings      ProviderEarning[]
+  favoritedBy   FavoriteProvider[]
+
+  @@map("provider_profiles")
+}
+
+model ProviderCapability {
+  id         String          @id @default(uuid())
+  providerId String
+  provider   ProviderProfile @relation(fields: [providerId], references: [id])
+  service    ServiceType
+
+  @@unique([providerId, service])
+  @@map("provider_capabilities")
+}
+
+model ProviderAvailability {
+  id         String          @id @default(uuid())
+  providerId String
+  provider   ProviderProfile @relation(fields: [providerId], references: [id])
+  startsAt   DateTime
+  endsAt     DateTime
+
+  @@map("provider_availability")
+}
+
+model ProviderServiceArea {
+  id           String          @id @default(uuid())
+  providerId   String
+  provider     ProviderProfile @relation(fields: [providerId], references: [id])
+  postalPrefix String
+  radiusMiles  Int
+
+  @@map("provider_service_areas")
+}
+
+model Address {
+  id         String          @id @default(uuid())
+  customerId String
+  customer   CustomerProfile @relation(fields: [customerId], references: [id])
+  label      String // Home, Hotel, Dorm, Office, ...
+  line1      String
+  line2      String?
+  city       String
+  region     String
+  postalCode String
+  lat        Float?
+  lng        Float?
+
+  orders Order[]
+
+  @@map("addresses")
+}
+
+model FavoriteProvider {
+  id         String          @id @default(uuid())
+  customerId String
+  customer   CustomerProfile @relation(fields: [customerId], references: [id])
+  providerId String
+  provider   ProviderProfile @relation(fields: [providerId], references: [id])
+
+  @@unique([customerId, providerId])
+  @@map("favorite_providers")
+}
+
+model Order {
+  id         String      @id @default(uuid())
+  customerId String
+  customer   CustomerProfile @relation(fields: [customerId], references: [id])
+  addressId  String
+  address    Address     @relation(fields: [addressId], references: [id])
+
+  service ServiceType
+  status  OrderStatus @default(SCHEDULED)
+
+  pickupWindowStart DateTime
+  pickupWindowEnd   DateTime
+
+  preferenceSnapshot Json // immutable copy of customer preferences at booking time — see §8
+
+  items          OrderItem[]
+  statusEvents   OrderStatusEvent[]
+  offers         ProviderOffer[]
+  assignment     ProviderAssignment?
+  quotes         Quote[]
+  weightVerification   WeightVerification?
+  pickupVerification   PickupVerification?
+  deliveryVerification DeliveryVerification?
+  photos         PhotoEvidence[]
+  payments       Payment[]
+  tips           Tip[]
+  review         Review?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id])
+  description String // e.g. "Shirt", "Comforter" — for item-based services
+  quantity    Int     @default(1)
+  finishing   Json? // hang / press flags for this item
+
+  @@map("order_items")
+}
+
+/// Append-only — never update a row in place; every transition is a new event.
+model OrderStatusEvent {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id])
+  fromStatus OrderStatus?
+  toStatus  OrderStatus
+  actorUserId String?
+  createdAt DateTime    @default(now())
+
+  @@map("order_status_events")
+}
+
+model ProviderOffer {
+  id         String        @id @default(uuid())
+  orderId    String
+  order      Order         @relation(fields: [orderId], references: [id])
+  providerId String
+  status     OfferStatus   @default(ELIGIBLE)
+  wave       Int           @default(1)
+  offeredAt  DateTime?
+  respondedAt DateTime?
+
+  assignment ProviderAssignment?
+
+  @@map("provider_offers")
+}
+
+/// Created by a single conditional UPDATE against ProviderOffer — see §4/§7.
+model ProviderAssignment {
+  id         String          @id @default(uuid())
+  orderId    String          @unique
+  order      Order           @relation(fields: [orderId], references: [id])
+  offerId    String          @unique
+  offer      ProviderOffer   @relation(fields: [offerId], references: [id])
+  providerId String
+  provider   ProviderProfile @relation(fields: [providerId], references: [id])
+  acceptedAt DateTime        @default(now())
+
+  @@map("provider_assignments")
+}
+
+model Quote {
+  id                     String   @id @default(uuid())
+  orderId                String
+  order                  Order    @relation(fields: [orderId], references: [id])
+  version                Int
+  estimatedWeightMinLb   Float?
+  estimatedWeightMaxLb   Float?
+  lineItems              Json
+  subtotalCents          Int
+  promoDiscountCents     Int      @default(0)
+  totalCents             Int
+  createdAt              DateTime @default(now())
+
+  @@unique([orderId, version])
+  @@map("quotes")
+}
+
+model WeightVerification {
+  id                String   @id @default(uuid())
+  orderId           String   @unique
+  order             Order    @relation(fields: [orderId], references: [id])
+  verifiedWeightLb  Float
+  verifiedByUserId  String
+  requiredApproval  Boolean  @default(false)
+  approvedByCustomer Boolean?
+  createdAt         DateTime @default(now())
+
+  @@map("weight_verifications")
+}
+
+model PickupVerification {
+  id          String   @id @default(uuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id])
+  bagCount    Int?
+  itemCount   Int?
+  method      String // qr, pin, signature
+  verifiedAt  DateTime @default(now())
+
+  @@map("pickup_verifications")
+}
+
+model DeliveryVerification {
+  id         String   @id @default(uuid())
+  orderId    String   @unique
+  order      Order    @relation(fields: [orderId], references: [id])
+  method     String
+  verifiedAt DateTime @default(now())
+
+  @@map("delivery_verifications")
+}
+
+/// Metadata only — the binary lives in private object storage, never a public bucket. See §13.
+model PhotoEvidence {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id])
+  storageKey  String
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+
+  @@map("photo_evidence")
+}
+
+model Payment {
+  id                String   @id @default(uuid())
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id])
+  processorRef      String // charge id from the payments processor, never a raw card number
+  amountCents       Int
+  status            String
+  createdAt         DateTime @default(now())
+
+  @@map("payments")
+}
+
+model ProviderEarning {
+  id         String          @id @default(uuid())
+  providerId String
+  provider   ProviderProfile @relation(fields: [providerId], references: [id])
+  orderId    String
+  amountCents Int
+  payoutId   String?
+  payout     Payout?         @relation(fields: [payoutId], references: [id])
+  createdAt  DateTime        @default(now())
+
+  @@map("provider_earnings")
+}
+
+model Payout {
+  id          String            @id @default(uuid())
+  providerId  String
+  amountCents Int
+  status      String
+  processedAt DateTime?
+  earnings    ProviderEarning[]
+
+  @@map("payouts")
+}
+
+model Tip {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id])
+  amountCents Int
+  createdAt   DateTime @default(now())
+
+  @@map("tips")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id])
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@map("reviews")
+}
+
+/// Every privileged action in §5/§7 writes one of these.
+model AuditEvent {
+  id          String   @id @default(uuid())
+  actorUserId String
+  action      String
+  resource    String
+  resourceId  String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@map("audit_events")
+}

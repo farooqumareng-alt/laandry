@@ -1,0 +1,622 @@
+# Laandry — Phase 0 Foundations
+
+Status: Phases 0–6 done (repo scaffold, routing, auth/roles, customer
+onboarding, booking/pricing/payment, provider onboarding, and
+matching/offers/atomic acceptance — see §19–§23). Per the development
+process this repo follows, no feature work begins until each phase's gate
+passes.
+
+## 0. Repository audit
+
+`E:\Git-laandry\Laandry` is empty — no package.json, no git history, no prior
+app. This is a greenfield start, not a migration. Everything below is a
+proposal, not a description of existing code.
+
+## 1. Architecture overview
+
+Four surfaces, one backend:
+
+- **laandry.com** — public marketing site + authenticated customer web app
+- **Laandry iOS / Android** — customer + provider native apps
+- **admin.laandry.com** — operations command center (desktop web only)
+- **api.laandry.com** — the one authoritative backend all four talk to
+
+Frontend: Expo + Expo Router + TypeScript (strict) + React Native Web, shared
+across customer mobile/web and (mostly) provider mobile. Public marketing
+routes render statically for SEO; the authenticated app is a client that
+calls the API — no server-side business logic lives in Expo's (still-alpha)
+request-time SSR. Admin is a separate Next.js (or similar) desktop-first web
+app — forcing it into the same mobile-shaped component set would hurt the
+one audience that needs data density, not touch targets.
+
+Target code sharing is **70–85%**, not 100%:
+
+| Shared | Platform-specific |
+|---|---|
+| Booking flow, pricing/quote calls, order state, preferences, auth, provider workflow logic | Camera capture (native), background GPS (native), desktop nav & data tables (web), admin (web-only), marketing SEO metadata (web-only) |
+
+Backend: a single API service (Node/TypeScript, e.g. NestJS or Fastify) is
+authoritative for pricing, permissions, provider assignment, order state,
+payments, credits, promotions, payouts, and verification. Supporting
+infrastructure: PostgreSQL, private object storage (S3-compatible), a job
+queue (e.g. BullMQ/SQS) for offer waves and notifications, a realtime channel
+(WebSocket/Pusher-style) for live order + offer state, a payments/payouts
+processor with marketplace support (e.g. Stripe Connect), transactional
+email, SMS, and push.
+
+```mermaid
+flowchart LR
+    subgraph Clients
+        W[laandry.com<br/>web app]
+        I[iOS app]
+        A[Android app]
+        AD[admin.laandry.com]
+    end
+    API[api.laandry.com<br/>authoritative backend]
+    DB[(PostgreSQL)]
+    OBJ[(Private object storage)]
+    Q[[Job queue]]
+    PAY[Payments / payouts processor]
+
+    W --> API
+    I --> API
+    A --> API
+    AD --> API
+    API --> DB
+    API --> OBJ
+    API --> Q
+    API --> PAY
+```
+
+## 2. Route map
+
+**Public (statically rendered, SEO-capable)**
+
+`/` `/how-it-works` `/services` `/services/everyday-laundry`
+`/services/garment-care` `/services/travel` `/providers` `/gift-cards`
+`/privacy` `/security` `/help`
+
+**Auth (public)**
+
+`/login` `/register`
+
+**Customer app (authenticated, not indexed)**
+
+`/book` (4-screen flow) `/orders` `/orders/[id]` `/preferences` `/account`
+`/wallet` `/referrals` `/store`
+
+**Provider app (native-first, web where practical)**
+
+`/provider/home` `/provider/offers` `/provider/orders/[id]`
+`/provider/earnings` `/provider/availability` `/provider/onboarding`
+
+**Admin (admin.laandry.com, desktop web)**
+
+`/dashboard` `/orders` `/customers` `/providers` `/applications`
+`/service-areas` `/pricing` `/promotions` `/gift-cards` `/referrals`
+`/products` `/payments` `/payouts` `/refunds` `/disputes` `/incidents`
+`/reviews` `/reports` `/audit` `/settings`
+
+## 3. Journeys
+
+**Customer:** land on laandry.com → pick a service → set care preferences
+(saved as "My Laandry Preferences") → pickup/return details → review with
+transparent estimate → `Schedule My Laandry` → track through friendly
+milestones → delivered → tip/rate → `Do My Laandry Again` next time skips
+straight to a time picker.
+
+**Provider:** apply → identity + service-area + equipment onboarding →
+approval → set availability → receive eligible offers (wave-based, not
+broadcast to everyone) → accept (atomic — only one provider wins) → pickup
+verification → process against the customer's preference snapshot → return
+verification → paid, with tips.
+
+**Admin/ops:** dashboard of live orders and exceptions → drill into an
+order's full event history → manage provider applications and service
+areas → configure pricing/promotions → handle refunds/disputes/incidents →
+audit log for every privileged action.
+
+## 4. State machines
+
+**Order lifecycle** (customer-visible milestones map onto a larger internal
+set — customers never see raw internal states):
+
+```mermaid
+stateDiagram-v2
+    [*] --> Scheduled
+    Scheduled --> ProviderAssigned
+    ProviderAssigned --> PickedUp
+    PickedUp --> BeingCaredFor: weight/items verified
+    BeingCaredFor --> Finishing
+    Finishing --> ReadyForReturn
+    ReadyForReturn --> OnTheWay
+    OnTheWay --> Delivered
+    Delivered --> [*]
+
+    ProviderAssigned --> Cancelled
+    PickedUp --> Disputed: damage / mismatch
+    BeingCaredFor --> Disputed
+    OnTheWay --> DeliveryFailed
+    DeliveryFailed --> OnTheWay: retry
+```
+
+Internal-only exception states layered on top: `CUSTOMER_UNAVAILABLE`,
+`PROVIDER_UNAVAILABLE`, `ORDER_MISMATCH`, `DAMAGED_ITEM_REPORTED`,
+`UNSUPPORTED_ITEM`, `PAYMENT_HOLD`. Every transition is a server-enforced
+command (`POST /orders/:id/transitions`), never a client-set field.
+
+**Provider offer / assignment** (solves the "two providers accept at once"
+race with an atomic conditional update, not UI state):
+
+```mermaid
+stateDiagram-v2
+    [*] --> Eligible
+    Eligible --> Wave1Offered
+    Wave1Offered --> Accepted: first accept wins (DB-level conditional update)
+    Wave1Offered --> Wave2Offered: timeout, expanded pool
+    Wave2Offered --> Accepted
+    Wave2Offered --> Unfulfilled: timeout, ops escalation
+    Accepted --> [*]
+```
+
+## 5. Role / permission matrix
+
+| Role | Own orders | Others' orders | Pricing rules | Provider approval | Payouts | Audit log |
+|---|---|---|---|---|---|---|
+| Customer | R/W (own) | — | — | — | — | — |
+| Provider | R/W (assigned) | — | — | — | own earnings | — |
+| Support | R (assigned tickets) | R | — | — | — | — |
+| Dispatch | — | R/W (assignment) | — | — | — | — |
+| Finance | — | R | R | — | R/W | R |
+| Ops Manager | — | R/W | R/W | R/W | R | R |
+| Admin | — | R/W | R/W | R/W | R/W | R |
+| Super Admin | — | R/W | R/W | R/W | R/W | R/W |
+
+Enforced server-side per resource/action, not by hiding buttons. Automated
+tests must prove cross-tenant isolation (see §16).
+
+## 6. Data classification
+
+| Category | Examples | Sensitivity | Handling |
+|---|---|---|---|
+| Identity | Name, login, DOB (provider KYC) | High | Encrypted at rest, access-logged |
+| Contact | Phone, email, address | High | Masked between customer↔provider; exact address revealed to provider only after assignment |
+| Location | Pickup GPS, live tracking during active leg | High | Collected only while operationally relevant; provider home/processing location never exposed |
+| Payment | Card tokens, payout bank details | Critical | Never touches our DB directly — processor-tokenized only |
+| Order content | Preferences, item lists, weight | Medium | Scoped to order participants |
+| Photo evidence | Pickup/condition photos | High | Private storage, short-lived signed URLs, order-scoped |
+| Financial ledger | Charges, credits, payouts, tips | High | Immutable append-only entries, audit-logged |
+| Marketing/public | Service pages, pricing ranges | Low | Public, indexable |
+
+## 7. Threat model (selected, STRIDE-flavored)
+
+| Threat | Vector | Mitigation |
+|---|---|---|
+| Cross-tenant data read | Guessable/sequential order IDs | UUIDs + server-side ownership check on every read, not just UI routing |
+| Race-condition double-assignment | Two providers tap accept simultaneously | Atomic conditional DB update (`UPDATE ... WHERE status='eligible'`), tested under concurrency |
+| Address leakage | Provider views order before accepting | Approximate area/distance pre-accept, exact address only post-assignment |
+| Price tampering | Client sends total at checkout | Server recomputes from a versioned Quote object; client total is ignored |
+| Replay/duplicate charge | Payment webhook retried | Idempotency keys + webhook signature verification |
+| Photo exposure | Public bucket / guessable filename | Private bucket, signed URLs, order-scoped ACL |
+| Privilege escalation | Support account performs admin action | Resource-level server authorization per role, tested explicitly |
+| Promo abuse | Referral/promo code farming | Per-user + global limits, qualifying-event-based referral credit (first completed paid order, not signup) |
+| Session hijack | Stolen token from insecure storage | Secure session storage per platform, MFA for staff/admin, device revocation |
+
+## 8. Database schema (core entities, grouped)
+
+```mermaid
+erDiagram
+    USER ||--o| CUSTOMER_PROFILE : has
+    USER ||--o| PROVIDER_PROFILE : has
+    CUSTOMER_PROFILE ||--o{ ADDRESS : saves
+    CUSTOMER_PROFILE ||--o{ ORDER : places
+    CUSTOMER_PROFILE ||--o{ FAVORITE_PROVIDER : sets
+    PROVIDER_PROFILE ||--o{ PROVIDER_CAPABILITY : has
+    PROVIDER_PROFILE ||--o{ PROVIDER_AVAILABILITY : sets
+    PROVIDER_PROFILE ||--o{ PROVIDER_SERVICE_AREA : covers
+    ORDER ||--|{ ORDER_ITEM : contains
+    ORDER ||--o{ ORDER_STATUS_EVENT : logs
+    ORDER ||--o{ PROVIDER_OFFER : generates
+    PROVIDER_OFFER ||--o| PROVIDER_ASSIGNMENT : becomes
+    ORDER ||--o| WEIGHT_VERIFICATION : records
+    ORDER ||--o| PICKUP_VERIFICATION : records
+    ORDER ||--o| DELIVERY_VERIFICATION : records
+    ORDER ||--o{ PHOTO_EVIDENCE : attaches
+    ORDER ||--o| QUOTE : priced_by
+    ORDER ||--o{ PAYMENT : charges
+    ORDER ||--o{ PROVIDER_EARNING : credits
+    PROVIDER_EARNING }o--|| PAYOUT : batched_into
+```
+
+Additional entities not diagrammed for space: `OrderBag`, `OrderService`,
+`OrderPreferenceSnapshot`, `Incident`, `PricingRule`, `Promotion`,
+`PromotionRedemption`, `Referral`, `AccountCreditLedger`, `GiftCard`,
+`GiftCardLedger`, `Product`, `StoreOrder`, `Refund`, `Tip`, `Notification`,
+`Review`, `AuditEvent`. Orders are deliberately not one wide table — bags,
+items, services, and preference snapshots are their own rows so an order
+can mix a weight-based load with individually-tracked garments.
+
+## 9. Pricing architecture
+
+The client never supplies an authoritative price. Booking produces a
+versioned **Quote**: service + estimated weight range + add-ons +
+promotions → server-evaluated `PricingRule` set → line-itemized estimate
+shown at Review. At verification, if actual weight/items materially exceed
+the customer's authorized tolerance, the order pauses for customer approval
+before the higher charge is finalized — no surprise charges.
+
+## 10. Payments & payout architecture
+
+Marketplace-capable processor (customer charges and provider payouts are
+separate accounting flows, e.g. Stripe Connect). No raw card data touches
+our servers. Every financial event — charge, adjustment, promo, credit,
+refund, tip, provider earning, platform fee, payout — is an immutable
+ledger entry, not an overwritten balance. Webhooks are signature-verified
+and idempotent, so a duplicated webhook cannot double-credit an earning or
+double-fire a payout.
+
+## 11. Privacy architecture
+
+Exact pickup address is withheld from a provider until they accept the
+offer; only approximate area/distance is shown pre-accept. Provider
+processing/home address is never shown to a customer. In-app or masked
+messaging replaces raw phone-number exchange. Photo evidence is optional
+where not operationally required, private-storage-only, and access-scoped
+to the order.
+
+## 12. Location architecture
+
+Live tracking runs only while a provider is actively traveling for an
+active leg of a specific order — not continuously, not while off duty.
+Background location follows each platform's permission model; the web
+client has a reduced/best-effort fallback since browsers can't guarantee
+background GPS. Location history is not logged indefinitely.
+
+## 13. Photo / file architecture
+
+Private object storage, no public bucket. Access is via short-lived signed
+URLs scoped to the order and the requesting party's authorization. Uploads
+are validated by file signature and size, not filename or client-supplied
+MIME type. Retention follows policy, not indefinite default storage.
+
+## 14. Notification architecture
+
+| Event | Push | SMS | Email | In-app |
+|---|---|---|---|---|
+| Order scheduled | ✓ | — | ✓ (receipt) | ✓ |
+| Provider assigned / en route | ✓ | ✓ (opt-in) | — | ✓ |
+| Pickup / delivery complete | ✓ | ✓ (opt-in) | ✓ (receipt) | ✓ |
+| Weight exceeds estimate — approval needed | ✓ | ✓ | — | ✓ |
+| Provider: new offer | ✓ | — | — | ✓ |
+| Payout processed | — | — | ✓ | ✓ |
+
+## 15. Repository structure (proposed monorepo)
+
+```
+laandry/
+  apps/
+    app/            # Expo Router — customer + provider, native + web
+    admin/           # Next.js — desktop-only ops console
+    api/              # Node/TS backend
+  packages/
+    ui/               # shared design-system components (RN + web)
+    domain/          # shared types, state machines, pricing/quote logic
+    api-client/      # typed client used by app + admin
+  infra/              # migrations, IaC
+  docs/
+```
+
+## 16. Test strategy
+
+Standard pyramid (unit → API/integration → E2E), plus a **mandatory**
+authorization suite proving: Customer A cannot read Customer B's order or
+photos; Provider A cannot read Provider B's order; an unassigned provider
+cannot obtain an exact address; a customer cannot obtain a provider's
+residential address; a customer cannot see a provider's payout info; a
+support account cannot perform a super-admin action; editing an order ID
+in a request does not bypass authorization.
+
+Required E2E paths: booking → offer/acceptance → pickup → verification →
+processing → return → delivery → payment → provider earnings → rebook —
+and their failure modes: no provider accepts, simultaneous acceptance,
+payment failure, weight exceeds estimate, cancellation (either side),
+unsupported garment, missing/damaged item, failed delivery, dropped
+network, duplicate tap, expired verification, unauthorized access attempt.
+
+## 17. MVP boundary
+
+**In:** Everyday Laundry (weight-based) + one item-based category (formal
+garments), booking, pricing engine, provider matching with atomic
+acceptance, pickup/processing/delivery verification, payments, provider
+earnings + payout, tips, ratings, rebook, preferences, admin order/provider
+management, core notifications.
+
+**Deferred:** subscriptions, store/product commerce beyond a minimal
+add-on set, gift cards, referrals, favorite-provider guarantees beyond
+best-effort, multi-language, advanced promotion rule types. The schema
+accommodates all of these later without an order-model rewrite.
+
+## 18. Phased implementation sequence
+
+| Phase | Scope | Gate to proceed | Status |
+|---|---|---|---|
+| 0 | This document | Reviewed & agreed | ✅ Done |
+| 1 | Repo scaffold, routing, design system, DB migrations | Builds, typechecks | ✅ Done |
+| 2 | Auth, roles, authorization test harness | Auth tests passing | ✅ Done — 36/36 tests passing (see §19) |
+| 3 | Customer onboarding, addresses, preferences | — | ✅ Done — 50/50 tests passing (see §20) |
+| 4 | Booking, pricing/quote, payment authorization | Quote never trusts client total (tested) | ✅ Done — 68/68 tests passing (see §21) |
+| 5 | Provider onboarding, capabilities, availability | — | ✅ Done — 84/84 tests passing (see §22) |
+| 6 | Matching, offers, atomic acceptance | Concurrency test passing | ✅ Done — 93/93 tests passing (see §23) |
+| 7 | Pickup, verification, bag/item/weight tracking | — | Next |
+| 8 | Processing workflow, preference snapshot, incidents | — | — |
+| 9 | Return/delivery, POD, tips, reviews | — | — |
+| 10 | Admin console | — | — |
+| 11 | Promotions, referrals, gift cards | — | — |
+| 12 | Store | — | — |
+| 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
+
+No phase begins while the current phase has failing security-critical
+tests.
+
+## 19. Phase 2 — what shipped
+
+Auth lives in `apps/api/src/auth/`. Password hashing via Node's built-in
+scrypt (no native dependency); sessions are a short-lived JWT access token
+(role embedded, not re-checked against the DB until refresh) plus an opaque
+refresh token whose SHA-256 hash is the only thing stored, rotated on every
+use so a replayed old refresh token is rejected. MFA (TOTP, via `otpauth`)
+is required at login for every role in `requiresMfa()` — every role except
+`customer` — once enrolled; a privileged user without MFA enrolled yet can
+still log in, flagged `mfaSetupRequired`, so enrollment itself isn't a
+chicken-and-egg lockout.
+
+Authorization is `requireAuth` → `requireRole` / `requirePermission`, the
+latter calling `hasPermission` from `packages/domain` against the §5
+matrix. Public `/auth/register` only ever creates `customer` accounts —
+every other role is provisioned out-of-band (provider application review in
+Phase 5, staff accounts created by an existing admin).
+
+The authorization test harness (`apps/api/src/auth/test-helpers.ts`) runs
+against an `InMemoryAuthRepository` behind the same `AuthRepository`
+interface `PrismaAuthRepository` implements, so the suite needs no live
+Postgres — `getPrisma()` in `db.ts` is never even called in tests. 36
+tests pass (`npm test` from the repo root): registration, login (including
+the MFA-required and MFA-setup-required paths), refresh rotation/replay
+rejection, logout/session revocation, and the authorization edge cases from
+§16 that don't require an Order to exist yet — unauthenticated, wrong role,
+forged/expired/wrong-secret tokens. The order/photo-specific cases in §16
+(cross-tenant order and address access) get written against this same
+harness once Order endpoints exist, in Phase 4/6/7.
+
+Not done in Phase 2: session/device management UI, "sign out everywhere,"
+and password reset — `revokeAllSessionsForUser` exists on the repository
+interface for when those land.
+
+## 20. Phase 3 — what shipped
+
+Registering a customer now provisions a `CustomerProfile` in the same flow
+(`onCustomerRegistered` callback wired in `app.ts`, so `auth/routes.ts`
+still doesn't need to know the customer module exists). "My Laandry
+Preferences" is a shared Zod schema (`packages/domain/src/preferences.ts`)
+with defaults for every field, so a brand-new profile is immediately
+complete — `PUT /me/preferences` replaces it wholesale, validated
+server-side. Addresses are full CRUD under `/me/addresses`, and every
+single-address route (`PATCH`/`DELETE /me/addresses/:id`) re-fetches the
+address and checks `customerId` against the caller's own profile before
+touching it — the exact "changing the ID in the URL" IDOR case from §16,
+now with a passing test for it (`customer.test.ts`).
+
+Same repository-interface pattern as auth: `CustomerRepository` has an
+`InMemoryCustomerRepository` for tests and a `PrismaCustomerRepository` for
+real, so this phase's tests need no live Postgres either.
+
+On the client: `apps/app` has real `/login` and `/register` screens, a
+non-React `auth-store.ts` (subscribed to via `useSyncExternalStore`, so
+auth state doesn't need a context provider wrapping the tree) that persists
+tokens via `expo-secure-store` on native and `localStorage` on web, and
+restores the session once at app start. `/preferences` and `/account` are
+no longer placeholders — they're real forms against the API, with `/account`
+also handling add/remove address and sign-out. `packages/api-client` grew
+typed methods for every new endpoint.
+
+**Known gap, called out rather than hidden:** the web token-storage
+fallback (`localStorage`) is not equivalent to native's OS keychain — a
+browser-side XSS bug could read it. Closing that means moving the web
+client to httpOnly session cookies set by the API, which changes the
+client/API contract enough that it's deliberately deferred rather than
+rushed into this phase.
+
+**Verified — 50/50 tests passing** (`npm run test`; 24 in `apps/api`, 26 in
+`packages/domain`), full-repo `typecheck` clean, and all three
+apps/{app,admin,api} build. `apps/app`'s static web export was re-run and
+still renders all 27 routes (25 from Phase 1 + `/login` + `/register`).
+**NOT VERIFIED:** the client screens against a live API — this sandbox has
+no Postgres/Docker, so `/auth/register` et al. were confirmed to fail
+correctly (clean 500, not a crash) rather than confirmed to succeed
+end-to-end. Run `docker compose -f infra/docker-compose.yml up -d` and
+`npx prisma migrate dev` to close that gap locally.
+
+## 21. Phase 4 — what shipped
+
+**Pricing** (`packages/domain/src/pricing.ts`) is a pure, deterministic
+function: service + weight tier (everyday/travel) or itemized list
+(garment-care/household) + the customer's preference snapshot in, a
+line-itemized `ComputedQuote` out. Rates are illustrative MVP placeholders,
+not real business pricing — Phase 10 makes them data-driven (a
+`PricingRule` admin UI) behind this same function signature. A `POST
+/quote-preview` endpoint runs it with no persistence and no payment, so
+Review can show a real number before the customer commits to anything —
+and a test proves that number is exactly what booking then charges.
+
+**Booking** (`apps/api/src/order/`) is one endpoint,
+`POST /orders`: validate the address belongs to the caller → merge saved
+preferences with any per-order overrides → `computeQuote()` → authorize
+payment for that total → persist Order + OrderItems + Quote v1 + Payment
+together (Prisma nested write, one atomic query). The request schema
+(`bookingServiceInputSchema.and(...)`, zod) has no field for a price, so
+there's structurally nothing for a client to tamper with — and
+`order.test.ts` sends a forged `totalCents`/`lineItems` alongside a real
+request anyway and asserts the server's number wins.
+
+**Payment authorization** (`apps/api/src/payments/`) is an interface —
+`PaymentProvider.authorize()` — with exactly one implementation,
+`FakePaymentProvider`, which is deliberately honest about not being Stripe:
+it declines only on the literal token `"tok_declined"` and authorizes
+everything else. No `StripePaymentProvider` exists yet because this
+environment has no processor credentials to build one against; writing a
+provider that *looks* wired up without ever calling a real API would be
+worse than the honest gap. `apps/app`'s Review screen surfaces this
+directly — the payment field is labeled "test token," not disguised as a
+card form.
+
+**Authorization**, finally exercised on a real owned resource: `GET
+/orders/:id` calls `hasPermission(role, "order", "read", { isOwner })`
+from `packages/domain` — the exact mechanism Phase 2 built and could only
+test generically until there was an `order` to test it against. Customer
+A reading Customer B's order now returns 404 (§16's flagship case), with
+a passing test.
+
+**Client**: `/book` is a real 4-step wizard (Service → Care → Pickup →
+Review) against `apps/app/src/app/book.tsx` — weight tiers and item
+catalogs render their real prices from `packages/domain` (not a second
+hardcoded copy), pickup windows are computed as real ISO timestamps against
+a small preset list (no date-picker dependency added for this), and Review
+calls `/quote-preview` before the customer ever taps "Schedule My
+Laandry." `/orders` and `/orders/[id]` are wired to the live API, with the
+order-status → friendly-milestone mapping (`toCustomerMilestone`) driving
+both the list and the detail tracker, exactly as specified in the original
+milestone list (Scheduled → … → Delivered).
+
+**Verified — 68/68 tests passing** (35 in `apps/api`, 33 in
+`packages/domain`), full-repo `typecheck` clean, all three apps build, and
+`apps/app`'s static web export still renders all 27 routes. Live-boot
+smoke test confirmed the new routes are registered and correctly
+401/reject rather than crash. **NOT VERIFIED:** the booking flow against a
+live Postgres (same Docker gap as every prior phase) and, separately,
+against a real payment processor (no credentials in this environment —
+tracked as the `StripePaymentProvider` follow-up, not silently assumed
+away).
+
+**Deliberately out of scope for Phase 4:** weight-verification-triggered
+re-approval (the `exceedsWeightTolerance` helper from Phase 1 is ready, but
+there's no provider workflow yet to call it from — that's Phase 7), and
+provider matching/assignment (Phase 6), so a booked order simply sits at
+`SCHEDULED` for now.
+
+## 22. Phase 5 — what shipped
+
+Providers apply through a dedicated `POST /provider/apply`
+(`apps/api/src/provider/`) — never through `/auth/register`, which stays
+customer-only, exactly as flagged as a forward reference back in Phase 2.
+Applying creates a `User(role=provider)` + `ProviderProfile` at
+`APPLICATION_STARTED` and issues a session the same way registration does;
+the shared piece (`issueSession`) was pulled out of `auth/routes.ts` into
+`auth/session.ts` so both call sites use exactly one implementation.
+
+**State machine**: `packages/domain/src/provider-status.ts` mirrors the
+Order/Offer state machines from Phase 1 — same shape, same
+assert-or-throw pattern, same "never settable directly by a client"
+discipline. `isProviderEligibleForWork()` returns true only for `ACTIVE`,
+which is the exact check Phase 6's matching will call before offering a
+provider any work — nothing before that phase touches it yet, but the
+line one phase from now will be one line.
+
+**The gap named, not hidden:** identity-document verification and
+training modules don't exist — there's no file/photo-upload architecture
+yet (that's a later phase) — so `APPLICATION_STARTED → REVIEW_PENDING` is
+reachable directly once a provider has at least one capability and one
+service area, skipping `IDENTITY_PENDING`/`TRAINING_PENDING` for now. The
+state machine still has both states and still refuses to skip a step it
+hasn't been told to allow; there's just currently no caller that asks it
+to require them.
+
+**Minimal admin action, not the Phase 10 console:** `POST
+/admin/providers/:id/approve` is the one write `ops_manager`/`admin`/
+`super_admin` can currently make against a provider application — it
+exercises the `provider_approval` grant from the §5 matrix for the first
+time (a customer or a provider gets 403; approving a provider that isn't
+in `REVIEW_PENDING` gets 409, not a silent no-op). There is no review
+queue, no list of pending applications, no UI for this beyond calling the
+endpoint directly — that's genuinely Phase 10's job, and this is the
+single authorized action it will call once it exists.
+
+**Client**: `/providers` (previously a static marketing placeholder) now
+has a real apply form; `/provider/onboarding` manages capabilities and
+service areas and submits for review; `/provider/availability` manages
+shift windows and activates the account once approved.
+`RequireAuth` grew an optional `role` prop so these screens can refuse a
+signed-in *customer* account outright instead of just requiring "signed in
+as someone."
+
+**Verified — 84/84 tests passing** (45 in `apps/api`, 39 in
+`packages/domain`), full-repo `typecheck` clean, all three apps build, and
+the static web export still renders all 27 routes. Live-boot smoke test
+confirmed the new routes are registered and reject correctly (401/400)
+without a live database. **NOT VERIFIED:** the full apply → capabilities →
+service area → submit → admin-approve → availability → activate lifecycle
+against a real Postgres (same Docker gap as every prior phase) — it is,
+however, the single most end-to-end-tested flow in the codebase so far at
+the in-memory-repository level (one test walks the entire lifecycle in
+order).
+
+## 23. Phase 6 — what shipped, including the bug this phase's own gate caught
+
+`apps/api/src/matching/` owns `ProviderOffer` and `ProviderAssignment`.
+Dispatch is synchronous, not queued: `POST /orders` calls an
+`onOrderBooked` callback (same pattern as `onCustomerRegistered` from
+Phase 3) right after the booking commits, which finds every `ACTIVE`
+provider with the right capability, a service area whose postal prefix
+covers the pickup address, and an availability window overlapping the
+pickup window (`ProviderRepository.findEligibleProviders`, new this
+phase), and creates a wave-1 `ProviderOffer` for each. **Wave 2 /
+escalation is not implemented** — there's no job scheduler yet to run a
+timeout against, so every dispatch stays wave 1 until a later phase adds
+one; the domain state machine still has `WAVE_2_OFFERED` and refuses to
+skip to it, there's just no caller yet.
+
+**The gate did its job.** The first version of `tryAcceptOffer` used a
+conditional `UPDATE ... WHERE status IN (...)` on the individual offer row
+— textbook-correct for "the same offer can't be accepted twice," and
+exactly what docs/ARCHITECTURE.md §7 describes. It shipped, typechecked,
+and every other test passed. The concurrency test then failed: **both**
+providers got `200`. The bug was real — each eligible provider gets their
+*own* offer row for the same order, so a conditional update scoped to one
+offer row does nothing to stop a *different* row, for the same order,
+from also winning. The fix moves the actual race-arbiter to
+`ProviderAssignment.orderId`, which is unique: `tryAcceptOffer` now
+attempts to *insert* the assignment first, and only proceeds to mark the
+offer `ACCEPTED` and the order `PROVIDER_ASSIGNED` if that insert
+succeeds. In Postgres this is a unique-constraint conflict (caught as
+Prisma error `P2002`) if another transaction's insert for the same
+`orderId` already committed; in the in-memory repository it's a
+synchronous `Map.has()` check before any `await`, which gives the same
+"exactly one caller can pass this point" guarantee for the reasons
+explained in `matching/memory-repository.ts`'s comments. Sibling offers
+for the same order (wave 1 or wave 2, whichever didn't win) transition to
+`UNFULFILLED` — a legal move `packages/domain/src/offer.ts` didn't allow
+until this phase (it only allowed that from `WAVE_2_OFFERED`), fixed there
+too, with a test.
+
+**Privacy** (§11): `GET /provider/offers` returns an `approximateArea`
+string (city + 3-digit postal prefix) built server-side — never the
+street address. `GET /provider/orders/:id`, which returns the exact
+address plus the full preference snapshot, checks
+`ProviderAssignment.providerId` and 404s (not 403) for anyone else,
+including a provider who merely has a *pending, unaccepted* offer on that
+order — tested explicitly.
+
+**Verified — 93/93 tests passing** (53 in `apps/api`, 40 in
+`packages/domain`), including the concurrency test itself re-run 5 times
+back to back with no flake (the synchronous-critical-section reasoning
+above is what makes that deterministic rather than lucky). Full-repo
+typecheck clean, all three apps build, static web export renders all 27
+routes, live-boot smoke test confirms the new routes reject correctly
+without a database. **NOT VERIFIED:** the same concurrency guarantee
+against a *real* concurrent Postgres — no Docker in this sandbox, so the
+Prisma path's correctness rests on the unique-constraint mechanism being
+sound (a well-established pattern) plus the in-memory equivalent actually
+passing, not on having watched two real overlapping transactions collide
+against a live database. Running this phase's test suite against
+`DATABASE_URL` pointed at a real Postgres, ideally with an artificially
+delayed/interleaved variant of the concurrency test, is the concrete way
+to close that gap.

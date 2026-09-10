@@ -1,0 +1,32 @@
+.kicker {
+  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: 10px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  max-width: 40em;
+}
+
+.description {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  max-width: 42em;
+}
+
+.emptyState {
+  margin-top: 28px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  padding: 28px;
+  color: var(--ink-faint);
+  font-size: 13.5px;
+  max-width: 42em;
+}
