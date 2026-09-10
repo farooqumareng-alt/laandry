@@ -1208,4 +1208,14 @@ payout history.
 phase; 51 in `packages/domain`: +3 for `computeOrderEarningCents`),
 full-repo typecheck clean, `apps/admin`'s ESLint clean (one more
 `set-state-in-effect` violation caught and fixed, same pattern as
-§29's), all three apps build.
+§29's), all three apps build. Redeployed live and walked the whole
+loop against the real Supabase database and real HTTP requests: booked
+a 4-item order (a real $36.00 total) → delivered it →
+**`computeOrderEarningCents(3600)` predicted exactly the 2520-cent
+earning the live API actually recorded** → tipped $7.00 → confirmed a
+second, separate 700-cent earning row (not split by the take rate) →
+ran a real payout → **the single resulting `Payout` correctly combined
+both earnings into 3220 cents, status `"paid"`** → the provider's own
+`GET /provider/payouts` shows it → `GET /provider/earnings`'s summary
+correctly moved the full amount from `pendingCents` to `paidOutCents`,
+landing on exactly 0 and 3220.
