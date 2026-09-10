@@ -65,15 +65,18 @@ With all three running (web is the fastest way to click through — press
 **Provider journey** — same app, different account
 1. `/providers` — apply (this is a separate account from any customer login, sign out first if needed)
 2. `/provider/onboarding` — pick capabilities, add a service area, submit for review
-3. Approve it — there's no admin UI for this yet (Phase 10), so call the API directly:
-   ```
-   curl -X POST http://localhost:4000/auth/login -H "Content-Type: application/json" \
-     -d '{"email":"admin@laandry.test","password":"<password from prisma:seed output>"}'
-   # copy accessToken from the response, then:
-   curl -X POST http://localhost:4000/admin/providers/<providerId>/approve \
-     -H "Authorization: Bearer <accessToken>"
-   ```
-   (`<providerId>` is in the response from step 2's submit-for-review, or `GET /provider/me`.)
+3. Approve it — `apps/admin` now has a real console for this (Phase 10):
+   sign in at `http://localhost:3000/login` with `admin@laandry.test` /
+   `<password from prisma:seed output>`, enroll MFA the first time
+   (every staff role requires it — the console walks you through it),
+   then **Provider Applications** → **Approve**. `<providerId>` in the
+   URL matches the one from step 2's submit-for-review response, or
+   `GET /provider/me`. (Raw `curl` still works the same way if you'd
+   rather skip the UI — `POST /auth/login`, then
+   `POST /admin/providers/<providerId>/approve` with the token — just
+   note a fresh local DB's seeded admin has no MFA enrolled yet, so
+   `/auth/login` succeeds directly with `mfaSetupRequired: true` until
+   you call `/auth/mfa/enroll` + `/auth/mfa/verify` once.)
 4. `/provider/availability` — add a shift, then "Go Active"
 5. Have the *customer* account book an order (`/book`) whose service,
    address postal code, and pickup window all fall inside what you set up
@@ -114,7 +117,7 @@ npm run build        # every workspace with a build script
 
 ## Status
 
-Phases 0–9 done: repo scaffold/routing/design tokens/DB schema,
+Phases 0–10 done: repo scaffold/routing/design tokens/DB schema,
 auth/roles/authorization test harness, customer onboarding (addresses +
 preferences), booking/pricing/payment authorization, provider onboarding
 (application → capabilities/service areas → review → approval →
@@ -123,21 +126,27 @@ verification (with re-pricing on a verified overage), a security
 hardening pass (helmet, CORS allowlist, rate limiting, log redaction, a
 non-leaking error handler), the processing workflow (required-stage
 confirmation against the customer's actual preferences, plus an
-incident-reporting pathway that never blocks or gates the order), and
-the return-delivery leg (with a real failed-delivery/retry path, tips as
-immutable ledger entries, and a one-shot post-delivery review) — front
-to back, 132 tests, `npm run test`. See
+incident-reporting pathway that never blocks or gates the order), the
+return-delivery leg (with a real failed-delivery/retry path, tips as
+immutable ledger entries, and a one-shot post-delivery review), and a
+real staff-authenticated admin console (MFA enrollment, live orders,
+providers, provider applications with a working approve action, and
+incident resolution) — front to back, 136 tests, `npm run test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26–§28 for what Phases
-2–9 shipped (§23 walks through a real concurrency bug the Phase 6 gate
-test caught and how it was fixed), §24 for the security pass, and §25 for
+for what's next and what gates it, §19–§23 and §26–§29 for what Phases
+2–10 shipped (§23 walks through a real concurrency bug the Phase 6 gate
+test caught and how it was fixed; §29 walks through a real
+Content-Type/empty-body bug its own live check caught, that had been
+silently breaking every bodyless POST call — Go Active, Start Delivery,
+and the like — in the live app), §24 for the security pass, and §25 for
 the live deployment (with three more real bugs deploying surfaced and
 fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.
 API at `api.laandry.com` (or `api-dusky-nine-29.vercel.app` if that
 subdomain's DNS hasn't finished propagating), admin console at
-`admin.laandry.com` — all on Vercel, backed by a real Supabase Postgres.
-See §25 for what's genuinely verified there vs. still open (no real
-payment processor, admin has no login screen yet, native mobile isn't
-shipped anywhere).
+`admin.laandry.com` (or `laandry-admin-farooqumars-projects.vercel.app`
+— same DNS caveat; sign in with `admin@laandry.test` /
+`laandry-dev-admin-password`, same as local dev — MFA-enrolled for real
+as of Phase 10) — all on Vercel, backed by a real Supabase Postgres. See §25 for what's genuinely verified there vs. still
+open (no real payment processor, native mobile isn't shipped anywhere).

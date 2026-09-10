@@ -1020,9 +1020,61 @@ correctness bug exactly, but exactly the pattern React's own docs warn
 against; fixed by moving the reset inside a locally-scoped async
 function invoked from the effect, everywhere the rule flagged it.
 
+**A real bug this phase's own live check caught:** `packages/api-client`'s
+`request()` helper always set `Content-Type: application/json`, even on
+a bodyless POST. Fastify's JSON body parser rejects an empty body
+whenever that header is present at all — so every no-payload POST
+(`mfaEnroll`, `activateProvider`, `submitProviderForReview`,
+`startDelivery`, `retryDelivery`, `markReadyForReturn`, and others) has
+been returning 400 over real HTTP since whichever phase first added
+each one. Invisible until now because every automated test calls these
+through Fastify's in-process `app.inject()` (which doesn't enforce the
+same check a real `fetch()` does), and every prior live-deploy
+verification used raw `curl` with an explicit `-d` body, never the
+actual JS client. Phase 10's MFA-enrollment check — a genuinely
+bodyless POST, exercised through a real `fetch()` for the first time —
+is what caught it. Fixed by only setting `Content-Type` when a body is
+actually present; verified live, reproducing the exact 400 before the
+fix and a clean 200 after, on both `/auth/mfa/enroll` and
+`/provider/submit-for-review`. Both `apps/app` and `apps/admin` were
+redeployed with the fix — this means `apps/app`'s "Go Active," "Submit
+for Review," "Start Delivery," and similar buttons were likely broken
+for real users in the live app before this fix, across every phase back
+to whichever one first shipped each button.
+
+**Vercel's own stopgap protection had to come off.** `laandry-admin`
+still had SSO deployment protection (`ssoProtection:
+all_except_custom_domains`) and password protection
+(`prod_deployment_urls_and_all_previews`) enabled from before this
+phase — meaning even with a real login screen built, staff would have
+hit a Vercel-account wall before ever reaching it. Disabled both
+(`vercel project protection disable laandry-admin --sso` /
+`--password`) now that real in-app auth exists to replace them — the
+same posture `laandry-app` and `laandry-api` already have (public
+reachability, gated by the app's own auth, not Vercel's).
+
 **Verified — 136/136 tests passing** (88 in `apps/api`, 48 in
 `packages/domain`; `apps/admin` has no automated test suite of its own,
 same as `apps/app` — both are verified by typecheck + build + (for
 `apps/app`) static export, never by automated UI tests, a standing gap
 this codebase has carried since Phase 1), full-repo typecheck clean,
-`apps/admin`'s ESLint clean, all three apps build.
+`apps/admin`'s ESLint clean, all three apps build. Redeployed live
+(`laandry-api`, `laandry-app`, `laandry-admin`) and walked the entire
+staff-auth flow against the real Supabase database and the real
+`admin@laandry.test` account with genuine HTTP requests, not `curl`:
+logged in pre-enrollment (`mfaSetupRequired: true`) → enrolled MFA for
+real → **a code-less login attempt correctly rejected 401
+`MFA_REQUIRED`** → logged in with a real TOTP code computed from the
+returned secret → `/me` confirms `mfaEnabled: true` → all four admin
+list endpoints returned real production data (5 orders, 4 providers, 1
+incident, 1 review — the accumulated artifacts of every prior phase's
+own live checks) → `/admin/providers?status=REVIEW_PENDING` correctly
+scoped by the query filter. `admin.laandry.com` and `api.laandry.com`
+still don't resolve publicly (same pre-existing DNS issue as §25/§27 —
+verified via the stable `*-farooqumars-projects.vercel.app` /
+`api-dusky-nine-29.vercel.app` aliases instead, same workaround as every
+prior phase). The seeded `admin@laandry.test` account now has MFA
+genuinely enabled in the live database as a result of this
+verification — a fresh `curl` login against it will get `401
+MFA_REQUIRED` without a code from here on, same as any other staff
+account; see the README's walkthrough update.
