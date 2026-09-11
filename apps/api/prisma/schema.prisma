@@ -72,6 +72,11 @@ enum ReferralStatus {
   QUALIFIED
 }
 
+enum GiftCardStatus {
+  UNREDEEMED
+  REDEEMED
+}
+
 enum IncidentType {
   DAMAGED_ITEM
   MISSING_ITEM
@@ -144,6 +149,8 @@ model CustomerProfile {
   referralsMade     Referral[]            @relation("Referrer")
   referredBy        Referral?             @relation("Referee")
   creditLedger      AccountCreditLedger[]
+  giftCardsPurchased GiftCard[]           @relation("Purchaser")
+  giftCardsRedeemed  GiftCard[]           @relation("Redeemer")
 
   @@map("customer_profiles")
 }
@@ -539,6 +546,28 @@ model AccountCreditLedger {
   createdAt   DateTime @default(now())
 
   @@map("account_credit_ledger")
+}
+
+/// A gift card's balance is never tracked here — redeeming one mints a
+/// single AccountCreditLedger grant for the full face value (reason
+/// "gift_card_redeemed") and this row just flips to REDEEMED. Spending
+/// it at a later booking is then the exact same useAccountCredit path
+/// referral credit already uses — no separate partial-balance/spend
+/// mechanism needed for gift cards at all.
+model GiftCard {
+  id                   String         @id @default(uuid())
+  code                 String         @unique
+  valueCents           Int
+  purchaserId          String
+  purchaser            CustomerProfile @relation("Purchaser", fields: [purchaserId], references: [id])
+  recipientEmail       String?
+  status               GiftCardStatus @default(UNREDEEMED)
+  redeemedByCustomerId String?
+  redeemedBy           CustomerProfile? @relation("Redeemer", fields: [redeemedByCustomerId], references: [id])
+  redeemedAt           DateTime?
+  createdAt            DateTime       @default(now())
+
+  @@map("gift_cards")
 }
 
 /// Every privileged action in §5/§7 writes one of these.

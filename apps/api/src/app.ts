@@ -17,6 +17,9 @@ import type { Env } from "./env";
 import { fulfillmentRoutes } from "./fulfillment/routes";
 import { PrismaFulfillmentRepository } from "./fulfillment/prisma-repository";
 import type { FulfillmentRepository } from "./fulfillment/repository";
+import { giftCardsRoutes } from "./gift-cards/routes";
+import { PrismaGiftCardsRepository } from "./gift-cards/prisma-repository";
+import type { GiftCardsRepository } from "./gift-cards/repository";
 import { matchingRoutes } from "./matching/routes";
 import { PrismaMatchingRepository } from "./matching/prisma-repository";
 import type { MatchingRepository } from "./matching/repository";
@@ -66,6 +69,7 @@ export interface BuildAppOptions {
   payoutProvider?: PayoutProvider;
   promotionsRepository?: PromotionsRepository;
   referralsRepository?: ReferralsRepository;
+  giftCardsRepository?: GiftCardsRepository;
 }
 
 /**
@@ -150,6 +154,7 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   const payoutProvider = options.payoutProvider ?? new FakePayoutProvider();
   const promotionsRepository = options.promotionsRepository ?? new PrismaPromotionsRepository(getPrisma());
   const referralsRepository = options.referralsRepository ?? new PrismaReferralsRepository(getPrisma());
+  const giftCardsRepository = options.giftCardsRepository ?? new PrismaGiftCardsRepository(getPrisma());
 
   app.register(healthRoutes);
   app.register(async (instance) =>
@@ -231,6 +236,17 @@ export function buildApp(env: Env, options: BuildAppOptions = {}) {
   );
   app.register(async (instance) => promotionsRoutes(instance, { promotionsRepository, env }));
   app.register(async (instance) => referralsRoutes(instance, { referralsRepository, customerRepository, env }));
+  app.register(async (instance) =>
+    giftCardsRoutes(instance, {
+      giftCardsRepository,
+      referralsRepository,
+      customerRepository,
+      authRepository,
+      paymentProvider,
+      notificationProvider,
+      env,
+    }),
+  );
 
   return app;
 }

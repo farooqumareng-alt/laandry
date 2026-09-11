@@ -11,3 +11,4 @@ export * from "./processing";
 export * from "./payouts";
 export * from "./promotions";
 export * from "./referrals";
+export * from "./gift-cards";

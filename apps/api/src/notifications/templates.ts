@@ -116,6 +116,45 @@ export function deliveryCompleteEmail(input: DeliveryCompleteEmailInput): { subj
   return { subject, html, text };
 }
 
+export interface GiftCardPurchasedEmailInput {
+  code: string;
+  valueCents: number;
+  /** True when this email is going to the recipient the purchaser named, not back to the purchaser themself. */
+  isForRecipient: boolean;
+}
+
+export function giftCardPurchasedEmail(input: GiftCardPurchasedEmailInput): { subject: string; html: string; text: string } {
+  const amount = centsToLabel(input.valueCents);
+  const subject = input.isForRecipient ? `You've got a ${amount} Laandry gift card` : "Your Laandry gift card";
+  const intro = input.isForRecipient
+    ? `Someone sent you a Laandry gift card worth <strong>${amount}</strong>.`
+    : `Your Laandry gift card worth <strong>${amount}</strong> is ready to use.`;
+  const introText = input.isForRecipient
+    ? `Someone sent you a Laandry gift card worth ${amount}.`
+    : `Your Laandry gift card worth ${amount} is ready to use.`;
+
+  const text = [
+    introText,
+    "",
+    `Redeem code: ${input.code}`,
+    "",
+    "Redeem it from the app to add the balance as account credit, then use it toward any order.",
+    "",
+    "— Laandry",
+  ].join("\n");
+
+  const html = wrap(`
+    <p style="margin:0 0 16px;">${intro}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #dedad0;border-radius:10px;padding:16px;margin-bottom:16px;">
+      <tr><td style="font-size:12.5px;color:#8a9490;padding-bottom:4px;">Redeem code</td></tr>
+      <tr><td style="font-size:22px;font-weight:700;letter-spacing:1px;">${input.code}</td></tr>
+    </table>
+    <p style="margin:0;color:#5b6660;">Redeem it from the app to add the balance as account credit, then use it toward any order.</p>
+  `);
+
+  return { subject, html, text };
+}
+
 export function providerApprovedEmail(): { subject: string; html: string; text: string } {
   const subject = "You're approved to go active";
 

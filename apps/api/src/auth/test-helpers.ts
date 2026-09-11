@@ -5,6 +5,7 @@ import type { Env } from "../env";
 import { InMemoryCustomerRepository } from "../customer/memory-repository";
 import { InMemoryDeliveryRepository } from "../delivery/memory-repository";
 import { InMemoryFulfillmentRepository } from "../fulfillment/memory-repository";
+import { InMemoryGiftCardsRepository } from "../gift-cards/memory-repository";
 import { InMemoryMatchingRepository } from "../matching/memory-repository";
 import { InMemoryNotificationProvider } from "../notifications/memory-provider";
 import { InMemoryOrderRepository } from "../order/memory-repository";
@@ -49,6 +50,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
   const payoutProvider = new FakePayoutProvider();
   const promotionsRepository = new InMemoryPromotionsRepository();
   const referralsRepository = new InMemoryReferralsRepository();
+  const giftCardsRepository = new InMemoryGiftCardsRepository();
   const app = buildApp(env, {
     authRepository: repository,
     customerRepository,
@@ -64,6 +66,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     payoutProvider,
     promotionsRepository,
     referralsRepository,
+    giftCardsRepository,
   });
   return {
     app,
@@ -81,6 +84,7 @@ export function buildTestApp(overrides: Partial<Env> = {}) {
     payoutProvider,
     promotionsRepository,
     referralsRepository,
+    giftCardsRepository,
     env,
   };
 }

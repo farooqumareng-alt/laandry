@@ -3,6 +3,7 @@ import type {
   BookingServiceInput,
   ComputedQuote,
   CreatePromotionInput,
+  GiftCardStatus,
   IncidentStatus,
   IncidentType,
   LaandryPreferences,
@@ -284,6 +285,18 @@ export interface CreditLedgerEntry {
   createdAt: string;
 }
 
+export interface GiftCard {
+  id: string;
+  code: string;
+  valueCents: number;
+  purchaserId: string;
+  recipientEmail: string | null;
+  status: GiftCardStatus;
+  redeemedByCustomerId: string | null;
+  redeemedAt: string | null;
+  createdAt: string;
+}
+
 export class LaandryApiError extends Error {
   constructor(
     public readonly status: number,
@@ -474,6 +487,13 @@ export function createLaandryClient(options: LaandryClientOptions) {
     getReferralCode: () => request<{ code: string }>("/me/referral-code"),
     getCredit: () => request<{ entries: CreditLedgerEntry[]; balanceCents: number }>("/me/credit"),
     adminListReferrals: () => request<{ referrals: Referral[] }>("/admin/referrals"),
+
+    // --- gift cards ---
+    purchaseGiftCard: (input: { valueCents: number; recipientEmail?: string; paymentMethodToken: string }) =>
+      post<{ giftCard: GiftCard }>("/gift-cards/purchase", input),
+    redeemGiftCard: (code: string) => post<{ giftCard: GiftCard }>("/gift-cards/redeem", { code }),
+    listMyGiftCards: () => request<{ giftCards: GiftCard[] }>("/me/gift-cards"),
+    adminListGiftCards: () => request<{ giftCards: GiftCard[] }>("/admin/gift-cards"),
   };
 }
 

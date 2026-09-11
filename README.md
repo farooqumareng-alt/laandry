@@ -142,14 +142,17 @@ credentials/decisions existed — real transactional email via Resend
 (order-scheduled, delivery-complete, provider-approved) and real
 provider earnings/payouts (a user-confirmed 30% platform / 70% provider
 split, tips paid through at 100%, an admin-triggered payout batch
-action). Phase 11 is mostly done: promo codes are real (percentage or
-fixed-amount, redemption limits, applied at booking) and so is the
+action). Phase 11 is done: promo codes are real (percentage or
+fixed-amount, redemption limits, applied at booking), so is the
 referral program (a real code per customer, credit granted to both
 parties only once the referee's first order is delivered — never at
-signup, and spendable at a future booking); gift cards are still
-unbuilt, deliberately — front to back, 177 tests, `npm run test`. See
+signup, and spendable at a future booking), and so are gift cards
+(purchased at a fixed denomination, redeemed by code into the exact
+same account-credit balance the referral program already spends from
+— no separate stored balance) — front to back, 191 tests, `npm run
+test`. See
 [docs/ARCHITECTURE.md §18](docs/ARCHITECTURE.md#18-phased-implementation-sequence)
-for what's next and what gates it, §19–§23 and §26–§33 for what shipped
+for what's next and what gates it, §19–§23 and §26–§34 for what shipped
 (§23 walks through a real concurrency bug the Phase 6 gate test caught
 and how it was fixed; §29 walks through a real Content-Type/empty-body
 bug its own live check caught, that had been silently breaking every
@@ -157,8 +160,8 @@ bodyless POST call — Go Active, Start Delivery, and the like — in the
 live app; §30 covers the real email integration, §31 the earnings/
 payouts ledger, §32 the promo-code engine — including a real
 double-discount bug its own test caught before it ever reached a
-route — and §33 the referral program), §24 for the security pass, and
-§25 for the live deployment
+route — §33 the referral program, and §34 gift cards), §24 for the
+security pass, and §25 for the live deployment
 (with three more real bugs deploying surfaced and fixed).
 
 **Live:** `laandry.com` — the customer/provider app, on its real domain.

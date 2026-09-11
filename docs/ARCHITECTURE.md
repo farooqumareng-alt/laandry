@@ -353,7 +353,7 @@ accommodates all of these later without an order-model rewrite.
 | 10 | Admin console | — | ✅ Done — 136/136 apps/api+domain tests passing (see §29) |
 | — | *Out of sequence: real transactional email (Resend)* | — | ✅ Done — 142/142 tests passing (see §30) — triggered by real credentials becoming available, not by phase order |
 | — | *Out of sequence: provider earnings & payouts* | — | ✅ Done — 151/151 tests passing (see §31) — closes the gap §28/§29 flagged, ahead of the deferred-commerce phases below |
-| 11 | Promotions, referrals, gift cards | — | 🟡 Promotions and referrals done — 177/177 tests passing (see §32/§33); gift cards still not built, a purchasable/redeemable stored balance being a materially different mechanism from either |
+| 11 | Promotions, referrals, gift cards | — | ✅ Done — 191/191 tests passing (see §32/§33/§34) |
 | 12 | Store | — | — |
 | 13 | Security hardening, accessibility, responsive QA, full E2E, staging | All critical-path E2E + auth tests green | — |
 
@@ -1366,3 +1366,76 @@ with `useAccountCredit: true` on a $25.00 (minimum-order-adjusted)
 total → **charged exactly $15.00, and the balance landed on exactly
 $0** — the same `applyAccountCreditToQuote` math worked out by hand
 ahead of time, before ever seeing the response.
+
+## 34. Phase 11 (completed): gift cards
+
+The last of Phase 11's three named pieces, and deliberately the
+simplest one to reason about once built — see the design note below.
+
+**No separate stored balance — the whole point of this design.**
+`GiftCard` (a real Prisma model, migrated against the live Supabase
+database) tracks a face value and an `UNREDEEMED`/`REDEEMED` status,
+nothing else. Redeeming one doesn't create or decrement a
+gift-card-specific balance at all: it mints exactly one
+`AccountCreditLedger` grant for the card's full face value (reason
+`"gift_card_redeemed"`) — the exact same ledger, and the exact same
+`useAccountCredit` spend-at-booking path (§33), referral credit already
+built. A gift card is, from the moment it's redeemed, indistinguishable
+from referral credit to every other part of the system. No partial-
+balance tracking, no second "how much of this card is left" query
+anywhere — deliberately, since building one would have meant
+maintaining two parallel notions of "money the customer can spend"
+that could drift from each other.
+
+**Purchasing charges immediately, the same authorize-and-record shape
+`order/routes.ts` uses.** `POST /gift-cards/purchase` validates the
+amount against a fixed set of denominations (`GIFT_CARD_DENOMINATIONS_CENTS`
+in `packages/domain/src/gift-cards.ts` — same "illustrative MVP
+placeholder, not a real business decision" status as pricing.ts's
+catalog rates and `REFERRAL_CREDIT_CENTS`, so it didn't need asking),
+authorizes the payment, then generates an 8-character code with the
+same scheme `customer/repository.ts` already uses for referral codes —
+collision-retried up to 5 times, since unlike a referral code (one per
+profile) a gift-card code isn't 1:1 with anything and a real collision,
+while astronomically unlikely, is structurally possible. A best-effort
+email (new `giftCardPurchasedEmail` template) goes to the named
+recipient, or back to the purchaser if none was given — a failed send
+never reverts or fails the purchase, same discipline as every other
+post-charge side effect in this codebase.
+
+**Redeeming is the one place this phase deliberately breaks from the
+"side effects are best-effort" pattern used everywhere else.** Minting
+the credit isn't a side effect of `POST /gift-cards/redeem` — it *is*
+the point of the endpoint — so unlike the redemption-recording and
+credit-spend blocks in `order/routes.ts`, the `addCreditEntry` call
+here is not wrapped in try/catch: a failure surfaces as a real 500
+instead of silently telling the customer their card was redeemed for
+nothing. Redemption is validated the same way a promo code is
+(`GIFT_CARD_NOT_FOUND` / `GIFT_CARD_ALREADY_REDEEMED`), and the code is
+uppercased before lookup — same normalization discipline as promo and
+referral codes.
+
+**Reuses existing infrastructure rather than adding new surface area,
+consistent with every prior module this session:** `ReferralsRepository.addCreditEntry`
+directly, rather than a parallel gift-cards-specific credit mechanism;
+the existing any-scoped `order`/`read` grant for `GET /admin/gift-cards`,
+the same reuse `GET /admin/referrals` made; no new `Resource` type.
+
+**Frontend:** `apps/app`'s Gift Cards screen (replacing its Phase 1
+placeholder, and moved behind `RequireAuth role="customer"` since
+purchasing and redeeming both require an account regardless) has a
+denomination picker, an optional recipient-email field, a redeem-code
+field, and a purchase history list. `apps/admin`'s Gift Cards page
+(also replacing its placeholder) is a real read-only list, matching
+the Referrals page's shape.
+
+**Verified — 191/191 tests passing** (125 in `apps/api`: +11 this
+phase; 66 in `packages/domain`: +3 for `gift-cards.ts`), full-repo
+typecheck clean, both `apps/admin` and `apps/app`'s ESLint clean on
+every touched file, all three apps build.
+
+NOT VERIFIED yet: against the live database and real HTTP requests —
+the migration has been applied to the live Supabase database, but a
+live redeploy and an end-to-end walk (purchase a card for real, redeem
+it, confirm the credit is spendable at a real booking through
+`useAccountCredit`) is next.
