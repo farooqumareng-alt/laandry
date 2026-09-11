@@ -1434,8 +1434,15 @@ phase; 66 in `packages/domain`: +3 for `gift-cards.ts`), full-repo
 typecheck clean, both `apps/admin` and `apps/app`'s ESLint clean on
 every touched file, all three apps build.
 
-NOT VERIFIED yet: against the live database and real HTTP requests —
-the migration has been applied to the live Supabase database, but a
-live redeploy and an end-to-end walk (purchase a card for real, redeem
-it, confirm the credit is spendable at a real booking through
-`useAccountCredit`) is next.
+Redeployed live and walked the whole loop against the real Supabase
+database and real HTTP requests: a non-denomination amount (`$49.99`)
+correctly 400'd and a declined test token correctly 402'd before any
+card was ever created → purchased a real `$25.00` card for a second
+account → that account's balance was `$0` until redeeming → **redeeming
+the code (lowercase, on purpose) landed the balance on exactly
+`$2,500` cents** → redeeming the same code again correctly 409'd,
+balance unchanged → booked a real `$25.00` (minimum-order-adjusted)
+order with `useAccountCredit: true` and **the redeemed credit covered
+it exactly — charged `$0.00`, balance landed on exactly `$0`** → the
+purchaser's `GET /me/gift-cards` showed exactly the one card, now
+`REDEEMED`.
